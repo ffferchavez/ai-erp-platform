@@ -1,0 +1,48 @@
+services:
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - traefik-letsencrypt:/letsencrypt
+    networks:
+      - platform
+    environment:
+      - DOMAIN_API=${DOMAIN_API}
+      - LE_EMAIL=${LE_EMAIL}
+    command:
+      - --certificatesresolvers.letsencrypt.acme.email=${LE_EMAIL}
+
+  ai-api:
+    build:
+      context: ../apps/ai-api
+      dockerfile: Dockerfile
+    container_name: ai-api
+    restart: unless-stopped
+    networks:
+      - platform
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.ai-api-http.rule=Host(`${DOMAIN_API}`)"
+      - "traefik.http.routers.ai-api-http.entrypoints=web"
+      - "traefik.http.routers.ai-api-https.rule=Host(`${DOMAIN_API}`)"
+      - "traefik.http.routers.ai-api-https.entrypoints=websecure"
+      - "traefik.http.routers.ai-api-https.tls=true"
+      - "traefik.http.routers.ai-api-https.tls.certresolver=letsencrypt"
+      - "traefik.http.services.ai-api.loadbalancer.server.port=8000"
+
+networks:
+  platform:
+    name: platform
+    driver: bridge
+
+volumes:
+  traefik-letsencrypt:
+    name: traefik-letsencrypt
