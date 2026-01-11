@@ -28,6 +28,31 @@ services:
       dockerfile: Dockerfile
     container_name: ai-api
     restart: unless-stopped
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - QDRANT_URL=${QDRANT_URL}
+    networks:
+      - platform
+
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=ai_erp
+      - POSTGRES_USER=ai_erp
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - platform
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant
+    restart: unless-stopped
+    volumes:
+      - qdrant-storage:/qdrant/storage
     networks:
       - platform
 
@@ -41,3 +66,7 @@ volumes:
     name: traefik-letsencrypt
   traefik-config:
     name: traefik-config
+  postgres-data:
+    name: postgres-data
+  qdrant-storage:
+    name: qdrant-storage

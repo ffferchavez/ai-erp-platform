@@ -277,4 +277,53 @@ GET / → {"name":"ai-api","version":"0.1.0"}
 
 ---
 
+## Platform v0.2 – Data Layer
+
+### Overview
+
+The platform now includes two internal data services: **Postgres** (relational database) and **Qdrant** (vector database). Both services are accessible only within the `platform` Docker network and are not exposed to the public internet.
+
+### Postgres
+
+**Purpose**: Relational database for structured data (users, transactions, metadata, etc.)
+
+**Configuration**:
+- Image: `postgres:16`
+- Database: `ai_erp`
+- User: `ai_erp`
+- Password: Set via `POSTGRES_PASSWORD` environment variable
+- Port: `5432` (internal only)
+- Volume: `postgres-data` (persistent storage)
+
+**Access**: Services connect using `DATABASE_URL` environment variable:
+```
+postgresql://ai_erp:password@postgres:5432/ai_erp
+```
+
+### Qdrant
+
+**Purpose**: Vector database for embeddings, semantic search, and AI-related vector operations
+
+**Configuration**:
+- Image: `qdrant/qdrant:latest`
+- Port: `6333` (internal only, not exposed to host)
+- Volume: `qdrant-storage` (persistent storage)
+
+**Access**: Services connect using `QDRANT_URL` environment variable:
+```
+http://qdrant:6333
+```
+
+### Internal-Only Services
+
+Both Postgres and Qdrant are:
+- ✅ Connected to the `platform` network
+- ✅ Accessible via Docker service names (`postgres`, `qdrant`)
+- ✅ Not exposed to the public internet
+- ✅ Using persistent volumes for data durability
+
+Only `ai-api` can access these services internally. No Traefik routing is configured for them.
+
+---
+
 **Platform v0.1** - Stable file-provider Traefik architecture
