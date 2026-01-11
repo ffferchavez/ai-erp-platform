@@ -38,8 +38,13 @@ async def ensure_schema_exists():
             )
         """))
         
-        # Create index on document_id for faster lookups
+        # Create indexes for faster lookups
         await conn.execute(text("""
             CREATE INDEX IF NOT EXISTS idx_chunks_document_id 
             ON chunks(document_id)
+        """))
+        
+        await conn.execute(text("""
+            CREATE INDEX IF NOT EXISTS idx_chunks_chunk_index 
+            ON chunks(chunk_index)
         """))
