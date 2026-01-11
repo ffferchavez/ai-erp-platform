@@ -326,4 +326,244 @@ Only `ai-api` can access these services internally. No Traefik routing is config
 
 ---
 
+## Platform v0.4 – Ingest + Semantic Search
+
+### Overview
+
+The platform now supports document ingestion and semantic search capabilities. Documents are stored in Postgres, chunked, embedded using OpenAI, and indexed in Qdrant for fast semantic search.
+
+### Features
+
+- **Document Ingestion**: Store documents with metadata (source, title, content)
+- **Automatic Chunking**: Documents are split into 800-character chunks with 120-character overlap
+- **Vector Embeddings**: Uses OpenAI's `text-embedding-3-small` model (configurable)
+- **Semantic Search**: Query documents using natural language
+- **Postgres Schema**: Automatic schema initialization on startup
+- **Qdrant Collection**: Automatic collection creation with proper vector configuration
+
+### Architecture
+
+```
+┌─────────────────┐
+│   POST /ingest  │
+│   (Document)    │
+└────────┬────────┘
+         │
+         ├─► Postgres (documents, chunks)
+         ├─► OpenAI (embeddings)
+         └─► Qdrant (vectors)
+         
+┌─────────────────┐
+│  POST /search   │
+│   (Query)       │
+└────────┬────────┘
+         │
+         ├─► OpenAI (query embedding)
+         ├─► Qdrant (vector search)
+         └─► Postgres (fetch chunk content)
+```
+
+### Database Schema
+
+**documents** table:
+- `id` (UUID, PK)
+- `source` (TEXT) - e.g., "policy", "menu", "manual"
+- `title` (TEXT)
+- `content` (TEXT)
+- `created_at` (TIMESTAMPTZ)
+
+**chunks** table:
+- `id` (UUID, PK)
+- `document_id` (UUID, FK → documents.id)
+- `chunk_index` (INT)
+- `content` (TEXT)
+- `created_at` (TIMESTAMPTZ)
+
+### Qdrant Collection
+
+- **Name**: `restaurant_knowledge`
+- **Distance**: Cosine
+- **Vector Size**: Determined automatically from embedding model (1536 for `text-embedding-3-small`)
+- **Payload**: `document_id`, `source`, `title`, `chunk_index`
+
+### Environment Variables
+
+Add to your `.env` file:
+
+```bash
+OPENAI_API_KEY=sk-your-openai-api-key-here
+EMBEDDING_MODEL=text-embedding-3-small  # Optional, defaults to text-embedding-3-small
+```
+
+### API Endpoints
+
+#### POST /ingest
+
+Ingest a document into the system.
+
+**Request:**
+```json
+{
+  "source": "policy",
+  "title": "Allergen Policy",
+  "content": "Our restaurant is committed to providing accurate allergen information..."
+}
+```
+
+**Response:**
+```json
+{
+  "document_id": "550e8400-e29b-41d4-a716-446655440000",
+  "chunks": 3,
+  "qdrant_collection": "restaurant_knowledge"
+}
+```
+
+#### POST /search
+
+Search for documents using semantic search.
+
+**Request:**
+```json
+{
+  "query": "what dishes are gluten free?",
+  "top_k": 5
+}
+```
+
+**Response:**
+```json
+{
+  "query": "what dishes are gluten free?",
+  "results": [
+    {
+      "score": 0.87,
+      "chunk_id": "660e8400-e29b-41d4-a716-446655440001",
+      "document_id": "550e8400-e29b-41d4-a716-446655440000",
+      "source": "policy",
+      "title": "Allergen Policy",
+      "chunk_index": 1,
+      "content": "Gluten-free options include..."
+    }
+  ]
+}
+```
+
+#### GET /documents/{document_id}
+
+Retrieve a document by ID.
+
+**Response:**
+```json
+{
+  "id": "550e8400-e29b-41d4-a716-446655440000",
+  "source": "policy",
+  "title": "Allergen Policy",
+  "content": "Full document content...",
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
+### Testing Instructions
+
+#### 1. Start the Platform
+
+```bash
+cd infra
+docker compose up -d --build
+```
+
+Ensure your `.env` file includes `OPENAI_API_KEY`.
+
+#### 2. Verify Readiness
+
+```bash
+curl http://localhost:8000/ready
+```
+
+Expected response:
+```json
+{"status": "ready", "postgres": "ok", "qdrant": "ok"}
+```
+
+#### 3. Ingest a Sample Document
+
+```bash
+curl -X POST http://localhost:8000/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "policy",
+    "title": "Allergen Policy",
+    "content": "Our restaurant is committed to providing accurate allergen information. We offer gluten-free options for customers with celiac disease or gluten sensitivity. All gluten-free dishes are prepared in a dedicated area to prevent cross-contamination. Please inform your server of any allergies or dietary restrictions. Common allergens include: wheat, dairy, eggs, soy, tree nuts, peanuts, fish, and shellfish. We cannot guarantee 100% allergen-free preparation due to shared kitchen equipment."
+  }'
+```
+
+Expected response:
+```json
+{
+  "document_id": "...",
+  "chunks": 1,
+  "qdrant_collection": "restaurant_knowledge"
+}
+```
+
+#### 4. Search for Documents
+
+```bash
+curl -X POST http://localhost:8000/search \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "what dishes are gluten free?",
+    "top_k": 5
+  }'
+```
+
+Expected response:
+```json
+{
+  "query": "what dishes are gluten free?",
+  "results": [
+    {
+      "score": 0.87,
+      "chunk_id": "...",
+      "document_id": "...",
+      "source": "policy",
+      "title": "Allergen Policy",
+      "chunk_index": 0,
+      "content": "Our restaurant is committed..."
+    }
+  ]
+}
+```
+
+#### 5. Retrieve a Document
+
+```bash
+curl http://localhost:8000/documents/{document_id}
+```
+
+Replace `{document_id}` with the ID returned from the ingest endpoint.
+
+### Implementation Details
+
+- **Chunking**: Simple character-based chunking (800 chars, 120 overlap)
+- **Embeddings**: OpenAI SDK v1+ style, async-compatible
+- **Schema Initialization**: Runs automatically on startup via `@app.on_event("startup")`
+- **Collection Creation**: Qdrant collection created automatically with correct vector size
+- **Error Handling**: Clear error messages if `OPENAI_API_KEY` is missing
+
+### File Structure
+
+```
+apps/ai-api/app/
+├── main.py              # FastAPI app with endpoints
+├── schema.py            # Postgres schema initialization
+├── ingest.py            # Chunking and ingestion logic
+├── openai_client.py     # OpenAI embedding client
+├── qdrant_client.py     # Qdrant client (updated with collection init)
+└── database.py          # Postgres connection (existing)
+```
+
+---
+
 **Platform v0.1** - Stable file-provider Traefik architecture
