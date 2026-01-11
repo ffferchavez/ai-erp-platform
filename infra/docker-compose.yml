@@ -13,9 +13,6 @@ services:
       - traefik-letsencrypt:/letsencrypt
     networks:
       - platform
-    environment:
-      - DOMAIN_API=${DOMAIN_API}
-      - LE_EMAIL=${LE_EMAIL}
 
   ai-api:
     build:
