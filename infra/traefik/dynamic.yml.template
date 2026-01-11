@@ -1,0 +1,30 @@
+http:
+  routers:
+    ai-api-http:
+      rule: "Host(`${DOMAIN_API}`)"
+      entryPoints:
+        - web
+      service: ai-api
+    ai-api-https:
+      rule: "Host(`${DOMAIN_API}`)"
+      entryPoints:
+        - websecure
+      service: ai-api
+      tls:
+        certResolver: letsencrypt
+  services:
+    ai-api:
+      loadBalancer:
+        servers:
+          - url: "http://ai-api:8000"
+  middlewares:
+    default-headers:
+      headers:
+        frameDeny: true
+        sslRedirect: true
+        browserXssFilter: true
+        contentTypeNosniff: true
+        forceSTSHeader: true
+        stsIncludeSubdomains: true
+        stsPreload: true
+        stsSeconds: 31536000

@@ -8,9 +8,17 @@ services:
       - "443:443"
       - "8080:8080"
     volumes:
-      - ./traefik/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./traefik/dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./traefik/traefik.yml.template:/templates/traefik.yml.template:ro
+      - ./traefik/dynamic.yml.template:/templates/dynamic.yml.template:ro
+      - ./traefik/entrypoint.sh:/entrypoint-custom.sh:ro
+      - traefik-config:/config
       - traefik-letsencrypt:/letsencrypt
+    environment:
+      - DOMAIN_API=${DOMAIN_API}
+      - LE_EMAIL=${LE_EMAIL}
+    command:
+      - sh
+      - /entrypoint-custom.sh
     networks:
       - platform
 
@@ -31,3 +39,5 @@ networks:
 volumes:
   traefik-letsencrypt:
     name: traefik-letsencrypt
+  traefik-config:
+    name: traefik-config
