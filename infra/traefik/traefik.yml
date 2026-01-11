@@ -9,11 +9,6 @@ entryPoints:
     address: ":443"
 
 providers:
-  docker:
-    endpoint: "unix:///var/run/docker.sock"
-    exposedByDefault: false
-    watch: true
-    useBindPortIP: false
   file:
     filename: /etc/traefik/dynamic.yml
     watch: true
@@ -21,6 +16,7 @@ providers:
 certificatesResolvers:
   letsencrypt:
     acme:
+      email: manuel.fernando.info@gmail.com
       storage: /letsencrypt/acme.json
       httpChallenge:
         entryPoint: web
