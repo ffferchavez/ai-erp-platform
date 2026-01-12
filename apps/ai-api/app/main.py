@@ -147,7 +147,7 @@ async def ready():
 
 @app.get("/")
 async def root():
-    return {"name": "ai-api", "version": "0.6.0"}
+    return {"name": "ai-api", "version": "0.7.0"}
 
 
 @app.post("/ingest", response_model=IngestResponse, status_code=status.HTTP_201_CREATED)
