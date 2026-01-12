@@ -1,4 +1,6 @@
+import os
 from fastapi import FastAPI, status, HTTPException, Query, Depends
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import List, Optional
@@ -14,6 +16,19 @@ from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sqlalchemy import text
 
 app = FastAPI(title="AI API", version="0.6.0")
+
+# Configure CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",  # Next.js dev server
+        "http://localhost:3001",  # Alternative port
+        "https://api.demo.helioncity.com",  # Production API (if UI is served from same domain)
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # Request/Response models

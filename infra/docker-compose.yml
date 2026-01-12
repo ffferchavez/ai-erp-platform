@@ -37,6 +37,7 @@ services:
       - CHAT_MAX_TOKENS=${CHAT_MAX_TOKENS:-250}
       - API_KEY=${API_KEY}
       - DEFAULT_TENANT_ID=${DEFAULT_TENANT_ID:-demo}
+      - CORS_ALLOW_ORIGINS=${CORS_ALLOW_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
     networks:
       - platform
 

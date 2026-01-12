@@ -1002,4 +1002,210 @@ apps/ai-api/app/
 
 ---
 
+## Platform v0.7 – UI Demo (Next.js, App Router)
+
+### Overview
+
+Platform v0.7 adds a minimal, production-lean UI built with Next.js (App Router), TypeScript, and Tailwind CSS. The UI demonstrates the AI ERP Platform working end-to-end for the restaurant demo tenant, providing a chat interface and document management capabilities.
+
+### Features
+
+- **Chat Interface**: Interactive chat panel with RAG-powered responses
+- **Citation Display**: Shows source documents with scores and content snippets
+- **Test Queries**: Quick buttons for common restaurant queries
+- **Document Management**: List, refresh, and delete documents (requires API key)
+- **Tenant Configuration**: UI field to set tenant_id
+- **API Key Support**: Optional X-API-Key field for protected endpoints
+
+### Technology Stack
+
+- **Framework**: Next.js 16 (App Router)
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS v4
+- **API Client**: Custom fetch wrapper with tenant_id and API key support
+
+### Project Structure
+
+```
+apps/ui/
+├── app/
+│   ├── page.tsx              # Home dashboard with chat
+│   ├── documents/
+│   │   └── page.tsx          # Document management page
+│   ├── layout.tsx            # Root layout
+│   └── globals.css           # Global styles
+├── lib/
+│   └── api.ts                # API client wrapper
+├── package.json
+├── tsconfig.json
+└── .env.local.example        # Environment variables template
+```
+
+### Local Development
+
+#### 1. Install Dependencies
+
+```bash
+cd apps/ui
+npm install
+```
+
+#### 2. Environment Setup
+
+Create `.env.local` file (or copy from `.env.local.example`):
+
+```bash
+NEXT_PUBLIC_API_BASE=https://api.demo.helioncity.com
+```
+
+**Note**: The UI defaults to `https://api.demo.helioncity.com` if `NEXT_PUBLIC_API_BASE` is not set.
+
+#### 3. Run Development Server
+
+```bash
+npm run dev
+```
+
+The UI will be available at `http://localhost:3000`
+
+#### 4. Build for Production
+
+```bash
+npm run build
+npm start
+```
+
+### Pages
+
+#### `/` (Home Dashboard)
+
+**Features:**
+- Chat panel that calls `POST /chat` with `{ tenant_id, message, top_k }`
+- Displays assistant answer and renders citations (score, title, content snippet)
+- Test buttons with example queries:
+  - Opening Hours
+  - Reservations
+  - Allergens
+  - Address
+- Tenant ID configuration field (defaults to "demo")
+- Top K slider for controlling retrieval count
+
+**Usage:**
+1. Set tenant_id (defaults to "demo")
+2. Enter a message or click a test query button
+3. View the assistant's answer and citations
+
+#### `/documents` (Admin-lite)
+
+**Features:**
+- Lists documents via `GET /documents?tenant_id=demo` (requires X-API-Key)
+- Refresh button to reload document list
+- Delete button per document calling `DELETE /documents/{id}?tenant_id=demo` (requires X-API-Key)
+- Clear error display if API key is missing or invalid
+
+**Usage:**
+1. Enter your X-API-Key (required for this page)
+2. Set tenant_id (defaults to "demo")
+3. Click "Refresh" to load documents
+4. Click "Delete" on any document to remove it
+
+### API Client (`lib/api.ts`)
+
+The API client provides a clean interface for interacting with the backend:
+
+**Functions:**
+- `chat(message, topK, config)` - Send chat message
+- `listDocuments(config)` - List documents (requires API key)
+- `deleteDocument(documentId, config)` - Delete document (requires API key)
+
+**Configuration:**
+```typescript
+interface ApiConfig {
+  tenantId?: string;  // Defaults to "demo"
+  apiKey?: string;    // Required for protected endpoints
+}
+```
+
+**Error Handling:**
+- Custom `ApiError` class with status codes
+- Clear error messages for missing API keys
+- Graceful handling of network errors
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NEXT_PUBLIC_API_BASE` | API base URL | `https://api.demo.helioncity.com` |
+
+### Using Tenant ID and API Key
+
+**Tenant ID:**
+- Defaults to "demo" if not specified
+- Can be changed via UI field on both pages
+- Sent as query parameter `tenant_id` in API requests
+
+**API Key:**
+- Required for `/documents` page (list and delete operations)
+- Optional for `/` page (chat endpoint is public)
+- Entered via UI field on documents page
+- Sent as `X-API-Key` header in API requests
+
+### Example Workflow
+
+1. **Start the UI:**
+   ```bash
+   cd apps/ui
+   npm install
+   npm run dev
+   ```
+
+2. **Test Chat (No API Key Required):**
+   - Navigate to `http://localhost:3000`
+   - Click "Opening Hours" test button
+   - View answer and citations
+
+3. **Manage Documents (API Key Required):**
+   - Navigate to `http://localhost:3000/documents`
+   - Enter your X-API-Key
+   - Click "Refresh" to see documents
+   - Delete documents as needed
+
+### Implementation Details
+
+- **Client-Side Rendering**: Both pages use `'use client'` for interactivity
+- **State Management**: React hooks (`useState`, `useEffect`) for local state
+- **Error Handling**: Try-catch blocks with user-friendly error messages
+- **Loading States**: Loading indicators during API calls
+- **Responsive Design**: Tailwind CSS for mobile-friendly layouts
+- **Dark Mode**: Supports system dark mode preference
+
+### File Structure Details
+
+**`lib/api.ts`:**
+- Fetch wrapper with base URL configuration
+- Automatic tenant_id query parameter injection
+- Optional X-API-Key header support
+- TypeScript types for all API responses
+
+**`app/page.tsx`:**
+- Chat form with message input and top_k control
+- Test query buttons for quick testing
+- Citation display with score, title, and content
+- Error handling and loading states
+
+**`app/documents/page.tsx`:**
+- Document list with refresh functionality
+- Delete confirmation dialogs
+- API key input with validation
+- Empty state messages
+
+### Notes
+
+- The UI is minimal and production-lean—no overengineering
+- Backend behavior unchanged—UI only consumes existing API
+- All API calls respect tenant_id isolation
+- Protected endpoints require API key as per v0.6 security model
+
+---
+
 **Platform v0.1** - Stable file-provider Traefik architecture
