@@ -15,7 +15,7 @@ from app.auth import verify_api_key, get_default_tenant_id
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sqlalchemy import text
 
-app = FastAPI(title="AI API", version="0.6.0")
+app = FastAPI(title="AI API", version="0.7.0")
 
 # Configure CORS
 app.add_middleware(
