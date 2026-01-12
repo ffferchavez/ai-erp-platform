@@ -1,7 +1,7 @@
-from fastapi import FastAPI, status, HTTPException
+from fastapi import FastAPI, status, HTTPException, Query, Depends
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from typing import List
+from typing import List, Optional
 
 from app.database import check_postgres, get_engine
 from app.qdrant_client import check_qdrant, ensure_collection_exists, COLLECTION_NAME, get_qdrant_client
@@ -9,9 +9,11 @@ from app.schema import ensure_schema_exists
 from app.ingest import ingest_document
 from app.openai_client import get_embedding
 from app.openai_chat import generate_answer
+from app.auth import verify_api_key, get_default_tenant_id
+from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sqlalchemy import text
 
-app = FastAPI(title="AI API", version="0.5.0")
+app = FastAPI(title="AI API", version="0.6.0")
 
 
 # Request/Response models
@@ -19,6 +21,7 @@ class IngestRequest(BaseModel):
     source: str
     title: str
     content: str
+    tenant_id: Optional[str] = None
 
 
 class IngestResponse(BaseModel):
@@ -30,6 +33,7 @@ class IngestResponse(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
+    tenant_id: Optional[str] = None
 
 
 class SearchResult(BaseModel):
@@ -50,6 +54,7 @@ class SearchResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     top_k: int = 5
+    tenant_id: Optional[str] = None
 
 
 class Citation(BaseModel):
@@ -127,19 +132,22 @@ async def ready():
 
 @app.get("/")
 async def root():
-    return {"name": "ai-api", "version": "0.5.0"}
+    return {"name": "ai-api", "version": "0.6.0"}
 
 
 @app.post("/ingest", response_model=IngestResponse, status_code=status.HTTP_201_CREATED)
-async def ingest(request: IngestRequest):
+async def ingest(request: IngestRequest, api_key: str = Depends(verify_api_key)):
     """
     Ingest a document: store in Postgres, chunk, embed, and store in Qdrant.
+    Requires X-API-Key header.
     """
     try:
+        tenant_id = request.tenant_id or get_default_tenant_id()
         document_id, num_chunks = await ingest_document(
             source=request.source,
             title=request.title,
-            content=request.content
+            content=request.content,
+            tenant_id=tenant_id
         )
         
         return IngestResponse(
@@ -164,20 +172,31 @@ async def ingest(request: IngestRequest):
 async def search(request: SearchRequest):
     """
     Search for documents using semantic search.
+    Public endpoint - filters by tenant_id.
     """
     try:
+        tenant_id = request.tenant_id or get_default_tenant_id()
+        
         # Embed the query
         query_embedding = await get_embedding(request.query)
         
-        # Search Qdrant
+        # Search Qdrant with tenant filter
         qdrant = get_qdrant_client()
         search_results = qdrant.search(
             collection_name=COLLECTION_NAME,
             query_vector=query_embedding,
+            query_filter=Filter(
+                must=[
+                    FieldCondition(
+                        key="tenant_id",
+                        match=MatchValue(value=tenant_id)
+                    )
+                ]
+            ),
             limit=request.top_k
         )
         
-        # Fetch chunk contents from Postgres
+        # Fetch chunk contents from Postgres (also filter by tenant_id for safety)
         engine = get_engine()
         results = []
         
@@ -185,16 +204,16 @@ async def search(request: SearchRequest):
             for hit in search_results:
                 chunk_id = str(hit.id)
                 
-                # Fetch chunk content from Postgres
+                # Fetch chunk content from Postgres with tenant filter
                 result = await conn.execute(
                     text("""
                         SELECT c.id, c.document_id, c.chunk_index, c.content,
                                d.source, d.title
                         FROM chunks c
                         JOIN documents d ON c.document_id = d.id
-                        WHERE c.id = :chunk_id
+                        WHERE c.id = :chunk_id AND c.tenant_id = :tenant_id
                     """),
-                    {"chunk_id": chunk_id}
+                    {"chunk_id": chunk_id, "tenant_id": tenant_id}
                 )
                 row = result.fetchone()
                 
@@ -226,21 +245,63 @@ async def search(request: SearchRequest):
         )
 
 
-@app.get("/documents/{document_id}")
-async def get_document(document_id: str):
+@app.get("/documents", dependencies=[Depends(verify_api_key)])
+async def list_documents(tenant_id: Optional[str] = Query(None)):
     """
-    Get a document by ID.
+    List documents for a tenant.
+    Requires X-API-Key header.
     """
     try:
+        tenant_id = tenant_id or get_default_tenant_id()
         engine = get_engine()
+        
         async with engine.connect() as conn:
             result = await conn.execute(
                 text("""
-                    SELECT id, source, title, content, created_at
+                    SELECT id, tenant_id, source, title, created_at
                     FROM documents
-                    WHERE id = :document_id
+                    WHERE tenant_id = :tenant_id
+                    ORDER BY created_at DESC
                 """),
-                {"document_id": document_id}
+                {"tenant_id": tenant_id}
+            )
+            rows = result.fetchall()
+            
+            return [
+                {
+                    "id": str(row[0]),
+                    "tenant_id": row[1],
+                    "source": row[2],
+                    "title": row[3],
+                    "created_at": row[4].isoformat() if row[4] else None
+                }
+                for row in rows
+            ]
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list documents: {str(e)}"
+        )
+
+
+@app.get("/documents/{document_id}", dependencies=[Depends(verify_api_key)])
+async def get_document(document_id: str, tenant_id: Optional[str] = Query(None)):
+    """
+    Get a document by ID.
+    Requires X-API-Key header.
+    """
+    try:
+        tenant_id = tenant_id or get_default_tenant_id()
+        engine = get_engine()
+        
+        async with engine.connect() as conn:
+            result = await conn.execute(
+                text("""
+                    SELECT id, tenant_id, source, title, content, created_at
+                    FROM documents
+                    WHERE id = :document_id AND tenant_id = :tenant_id
+                """),
+                {"document_id": document_id, "tenant_id": tenant_id}
             )
             row = result.fetchone()
             
@@ -252,10 +313,11 @@ async def get_document(document_id: str):
             
             return {
                 "id": str(row[0]),
-                "source": row[1],
-                "title": row[2],
-                "content": row[3],
-                "created_at": row[4].isoformat() if row[4] else None
+                "tenant_id": row[1],
+                "source": row[2],
+                "title": row[3],
+                "content": row[4],
+                "created_at": row[5].isoformat() if row[5] else None
             }
     except HTTPException:
         raise
@@ -266,25 +328,117 @@ async def get_document(document_id: str):
         )
 
 
+@app.delete("/documents/{document_id}", dependencies=[Depends(verify_api_key)])
+async def delete_document(document_id: str, tenant_id: Optional[str] = Query(None)):
+    """
+    Delete a document and its chunks.
+    Requires X-API-Key header.
+    Deletes from both Postgres and Qdrant.
+    """
+    try:
+        tenant_id = tenant_id or get_default_tenant_id()
+        engine = get_engine()
+        qdrant = get_qdrant_client()
+        
+        # Verify document exists and belongs to tenant
+        async with engine.begin() as conn:
+            result = await conn.execute(
+                text("""
+                    SELECT id FROM documents
+                    WHERE id = :document_id AND tenant_id = :tenant_id
+                """),
+                {"document_id": document_id, "tenant_id": tenant_id}
+            )
+            row = result.fetchone()
+            
+            if not row:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="Document not found"
+                )
+            
+            # Get chunk IDs for Qdrant deletion
+            chunk_result = await conn.execute(
+                text("""
+                    SELECT id FROM chunks
+                    WHERE document_id = :document_id AND tenant_id = :tenant_id
+                """),
+                {"document_id": document_id, "tenant_id": tenant_id}
+            )
+            chunk_rows = chunk_result.fetchall()
+            chunk_ids = [str(row[0]) for row in chunk_rows]
+            
+            # Delete from Postgres (CASCADE will handle chunks)
+            await conn.execute(
+                text("""
+                    DELETE FROM documents
+                    WHERE id = :document_id AND tenant_id = :tenant_id
+                """),
+                {"document_id": document_id, "tenant_id": tenant_id}
+            )
+        
+        # Delete from Qdrant using filter
+        if chunk_ids:
+            qdrant.delete(
+                collection_name=COLLECTION_NAME,
+                points_selector=Filter(
+                    must=[
+                        FieldCondition(
+                            key="document_id",
+                            match=MatchValue(value=document_id)
+                        ),
+                        FieldCondition(
+                            key="tenant_id",
+                            match=MatchValue(value=tenant_id)
+                        )
+                    ]
+                )
+            )
+        
+        return {
+            "message": "Document deleted successfully",
+            "document_id": document_id,
+            "tenant_id": tenant_id
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete document: {str(e)}"
+        )
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(request: ChatRequest):
     """
     Chat endpoint with RAG: embed query, retrieve chunks, generate answer.
     Reuses existing Qdrant vectors (does not re-embed documents).
+    Public endpoint - filters by tenant_id.
     """
     try:
+        tenant_id = request.tenant_id or get_default_tenant_id()
+        
         # 1. Embed the user query (same as /search)
         query_embedding = await get_embedding(request.message)
         
-        # 2. Retrieve top_k chunks from Qdrant
+        # 2. Retrieve top_k chunks from Qdrant with tenant filter
         qdrant = get_qdrant_client()
         search_results = qdrant.search(
             collection_name=COLLECTION_NAME,
             query_vector=query_embedding,
+            query_filter=Filter(
+                must=[
+                    FieldCondition(
+                        key="tenant_id",
+                        match=MatchValue(value=tenant_id)
+                    )
+                ]
+            ),
             limit=request.top_k
         )
         
-        # 3. Fetch chunk contents from Postgres and build citations
+        # 3. Fetch chunk contents from Postgres and build citations (also filter by tenant_id)
         engine = get_engine()
         citations = []
         contexts = []
@@ -293,16 +447,16 @@ async def chat(request: ChatRequest):
             for hit in search_results:
                 chunk_id = str(hit.id)
                 
-                # Fetch chunk content from Postgres
+                # Fetch chunk content from Postgres with tenant filter
                 result = await conn.execute(
                     text("""
                         SELECT c.id, c.document_id, c.chunk_index, c.content,
                                d.source, d.title
                         FROM chunks c
                         JOIN documents d ON c.document_id = d.id
-                        WHERE c.id = :chunk_id
+                        WHERE c.id = :chunk_id AND c.tenant_id = :tenant_id
                     """),
-                    {"chunk_id": chunk_id}
+                    {"chunk_id": chunk_id, "tenant_id": tenant_id}
                 )
                 row = result.fetchone()
                 

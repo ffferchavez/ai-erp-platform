@@ -7,6 +7,7 @@ from sqlalchemy import text
 from app.database import get_engine
 from app.qdrant_client import get_qdrant_client, ensure_collection_exists
 from app.openai_client import get_embeddings
+from app.auth import get_default_tenant_id
 
 
 def chunk_text(content: str, chunk_size: int = 800, overlap: int = 120) -> List[str]:
@@ -45,7 +46,8 @@ def chunk_text(content: str, chunk_size: int = 800, overlap: int = 120) -> List[
 async def ingest_document(
     source: str,
     title: str,
-    content: str
+    content: str,
+    tenant_id: str | None = None
 ) -> Tuple[str, int]:
     """
     Ingest a document: store in Postgres, chunk, embed, and store in Qdrant.
@@ -54,6 +56,7 @@ async def ingest_document(
         source: Document source (e.g., "policy", "menu", "manual")
         title: Document title
         content: Document content
+        tenant_id: Tenant ID (defaults to DEFAULT_TENANT_ID)
         
     Returns:
         Tuple of (document_id, num_chunks)
@@ -64,6 +67,10 @@ async def ingest_document(
     engine = get_engine()
     qdrant = get_qdrant_client()
     
+    # Use provided tenant_id or default
+    if tenant_id is None:
+        tenant_id = get_default_tenant_id()
+    
     # Generate document ID
     document_id = str(uuid.uuid4())
     
@@ -71,11 +78,12 @@ async def ingest_document(
     async with engine.begin() as conn:
         await conn.execute(
             text("""
-                INSERT INTO documents (id, source, title, content)
-                VALUES (:id, :source, :title, :content)
+                INSERT INTO documents (id, tenant_id, source, title, content)
+                VALUES (:id, :tenant_id, :source, :title, :content)
             """),
             {
                 "id": document_id,
+                "tenant_id": tenant_id,
                 "source": source,
                 "title": title,
                 "content": content
@@ -101,10 +109,13 @@ async def ingest_document(
         for record in chunk_records:
             await conn.execute(
                 text("""
-                    INSERT INTO chunks (id, document_id, chunk_index, content)
-                    VALUES (:id, :document_id, :chunk_index, :content)
+                    INSERT INTO chunks (id, document_id, tenant_id, chunk_index, content)
+                    VALUES (:id, :document_id, :tenant_id, :chunk_index, :content)
                 """),
-                record
+                {
+                    **record,
+                    "tenant_id": tenant_id
+                }
             )
     
     # Generate embeddings for all chunks
@@ -123,6 +134,8 @@ async def ingest_document(
             "vector": embeddings[i],
             "payload": {
                 "document_id": document_id,
+                "chunk_id": record["id"],
+                "tenant_id": tenant_id,
                 "chunk_index": record["chunk_index"],
                 "text": record["content"],
                 "title": title,

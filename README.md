@@ -712,4 +712,294 @@ apps/ai-api/app/
 
 ---
 
+## Platform v0.6 – Demo-Friendly Security & Multi-Tenant Isolation
+
+### Overview
+
+Platform v0.6 adds demo-friendly security with API key protection for write/admin endpoints while keeping read endpoints public. It also implements multi-tenant isolation, ensuring each tenant's data is completely separated.
+
+### Features
+
+- **API Key Protection**: Write/admin endpoints require `X-API-Key` header
+- **Public Read Endpoints**: `/chat`, `/search`, `/health`, `/ready` remain public for demos
+- **Multi-Tenant Isolation**: All documents and chunks are scoped to `tenant_id`
+- **Safe Defaults**: Default tenant is `demo` if not specified
+- **Backward Compatible**: Existing data automatically gets default tenant ID
+
+### Security Model
+
+**Public Endpoints** (no API key required):
+- `POST /chat` - Chat with RAG
+- `POST /search` - Semantic search
+- `GET /health` - Health check
+- `GET /ready` - Readiness check
+
+**Protected Endpoints** (require `X-API-Key` header):
+- `POST /ingest` - Ingest documents
+- `GET /documents` - List documents
+- `GET /documents/{document_id}` - Get document
+- `DELETE /documents/{document_id}` - Delete document
+
+### Multi-Tenant Architecture
+
+Every document and chunk belongs to a `tenant_id`:
+- Documents are isolated by tenant
+- Search and chat queries filter by tenant
+- Qdrant vectors include `tenant_id` in payload
+- Postgres queries filter by `tenant_id`
+
+### Environment Variables
+
+Add to your `.env` file:
+
+```bash
+API_KEY=your-secret-api-key-here          # Required for protected endpoints
+DEFAULT_TENANT_ID=demo                    # Optional, defaults to "demo"
+```
+
+**Important**: Never commit real API keys to git. Use `.env.example` as a template.
+
+### API Endpoints
+
+#### POST /ingest (Protected)
+
+Ingest a document with optional tenant_id.
+
+**Request Headers:**
+```
+X-API-Key: your-api-key
+```
+
+**Request:**
+```json
+{
+  "source": "policy",
+  "title": "Allergen Policy",
+  "content": "...",
+  "tenant_id": "demo"
+}
+```
+
+**Response:**
+```json
+{
+  "document_id": "...",
+  "chunks": 3,
+  "qdrant_collection": "restaurant_knowledge"
+}
+```
+
+#### POST /search (Public)
+
+Search documents for a specific tenant.
+
+**Request:**
+```json
+{
+  "query": "what dishes are gluten free?",
+  "top_k": 5,
+  "tenant_id": "demo"
+}
+```
+
+**Response:** Same as v0.4, but only returns results for the specified tenant.
+
+#### POST /chat (Public)
+
+Chat with RAG for a specific tenant.
+
+**Request:**
+```json
+{
+  "message": "what dishes are gluten free?",
+  "top_k": 5,
+  "tenant_id": "demo"
+}
+```
+
+**Response:** Same as v0.5, but only uses context from the specified tenant.
+
+#### GET /documents (Protected)
+
+List all documents for a tenant.
+
+**Request Headers:**
+```
+X-API-Key: your-api-key
+```
+
+**Query Parameters:**
+- `tenant_id` (optional, defaults to `DEFAULT_TENANT_ID`)
+
+**Response:**
+```json
+[
+  {
+    "id": "...",
+    "tenant_id": "demo",
+    "source": "policy",
+    "title": "Allergen Policy",
+    "created_at": "2024-01-15T10:30:00Z"
+  }
+]
+```
+
+#### GET /documents/{document_id} (Protected)
+
+Get a specific document.
+
+**Request Headers:**
+```
+X-API-Key: your-api-key
+```
+
+**Query Parameters:**
+- `tenant_id` (optional, defaults to `DEFAULT_TENANT_ID`)
+
+**Response:**
+```json
+{
+  "id": "...",
+  "tenant_id": "demo",
+  "source": "policy",
+  "title": "Allergen Policy",
+  "content": "...",
+  "created_at": "2024-01-15T10:30:00Z"
+}
+```
+
+#### DELETE /documents/{document_id} (Protected)
+
+Delete a document and all its chunks.
+
+**Request Headers:**
+```
+X-API-Key: your-api-key
+```
+
+**Query Parameters:**
+- `tenant_id` (optional, defaults to `DEFAULT_TENANT_ID`)
+
+**Response:**
+```json
+{
+  "message": "Document deleted successfully",
+  "document_id": "...",
+  "tenant_id": "demo"
+}
+```
+
+### Testing Instructions
+
+#### 1. Set Up Environment
+
+```bash
+# In your .env file
+API_KEY=my-secret-key-123
+DEFAULT_TENANT_ID=demo
+```
+
+#### 2. Test Public Endpoint (No API Key)
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "what dishes are gluten free?",
+    "top_k": 5,
+    "tenant_id": "demo"
+  }'
+```
+
+#### 3. Test Protected Endpoint (With API Key)
+
+```bash
+curl -X POST http://localhost:8000/ingest \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: my-secret-key-123" \
+  -d '{
+    "source": "policy",
+    "title": "Allergen Policy",
+    "content": "Our restaurant offers gluten-free options...",
+    "tenant_id": "demo"
+  }'
+```
+
+#### 4. Test Without API Key (Should Fail)
+
+```bash
+curl -X POST http://localhost:8000/ingest \
+  -H "Content-Type: application/json" \
+  -d '{
+    "source": "policy",
+    "title": "Test",
+    "content": "Test content"
+  }'
+```
+
+Expected response: `401 Unauthorized`
+
+#### 5. List Documents
+
+```bash
+curl -X GET "http://localhost:8000/documents?tenant_id=demo" \
+  -H "X-API-Key: my-secret-key-123"
+```
+
+#### 6. Delete Document
+
+```bash
+curl -X DELETE "http://localhost:8000/documents/{document_id}?tenant_id=demo" \
+  -H "X-API-Key: my-secret-key-123"
+```
+
+### Database Schema Changes
+
+**New Columns:**
+- `documents.tenant_id` (TEXT NOT NULL DEFAULT 'demo')
+- `chunks.tenant_id` (TEXT NOT NULL DEFAULT 'demo')
+
+**New Indexes:**
+- `idx_documents_tenant_created` on `documents(tenant_id, created_at)`
+- `idx_chunks_tenant_document` on `chunks(tenant_id, document_id)`
+
+**Migration:** Existing tables are automatically migrated on startup. Existing rows get the default tenant ID.
+
+### Qdrant Changes
+
+**Payload Updates:**
+- All Qdrant points now include `tenant_id` in payload
+- Search queries filter by `tenant_id` using Qdrant filters
+
+### Implementation Details
+
+- **API Key Verification**: FastAPI dependency `verify_api_key()` checks `X-API-Key` header
+- **Tenant Filtering**: All queries filter by `tenant_id` (both Postgres and Qdrant)
+- **Default Tenant**: Uses `DEFAULT_TENANT_ID` env var (defaults to "demo")
+- **Backward Compatibility**: Existing data automatically assigned to default tenant
+
+### File Structure
+
+```
+apps/ai-api/app/
+├── main.py              # FastAPI app with protected/public endpoints
+├── auth.py              # API key verification (NEW)
+├── openai_chat.py       # Chat answer generation
+├── schema.py            # Postgres schema (updated with tenant_id)
+├── ingest.py            # Chunking and ingestion (updated with tenant_id)
+├── openai_client.py     # OpenAI embedding client
+├── qdrant_client.py     # Qdrant client
+└── database.py          # Postgres connection
+```
+
+### Security Recommendations
+
+1. **For Demos**: Keep `/chat` public so visitors can try it
+2. **For Production**: Consider additional security layers (rate limiting, CORS, etc.)
+3. **API Keys**: Use strong, randomly generated keys
+4. **Tenant Isolation**: Each tenant should have a unique tenant_id
+5. **Never Commit Secrets**: Keep `.env` files out of git
+
+---
+
 **Platform v0.1** - Stable file-provider Traefik architecture
