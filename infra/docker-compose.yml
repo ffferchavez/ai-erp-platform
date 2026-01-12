@@ -33,6 +33,8 @@ services:
       - QDRANT_URL=${QDRANT_URL}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-text-embedding-3-small}
+      - CHAT_MODEL=${CHAT_MODEL:-gpt-4o-mini}
+      - CHAT_MAX_TOKENS=${CHAT_MAX_TOKENS:-250}
     networks:
       - platform
 

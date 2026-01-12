@@ -560,8 +560,154 @@ apps/ai-api/app/
 ├── schema.py            # Postgres schema initialization
 ├── ingest.py            # Chunking and ingestion logic
 ├── openai_client.py     # OpenAI embedding client
+├── openai_chat.py       # OpenAI chat client (v0.5)
 ├── qdrant_client.py     # Qdrant client (updated with collection init)
 └── database.py          # Postgres connection (existing)
+```
+
+---
+
+## Platform v0.5 – RAG Chat Endpoint
+
+### Overview
+
+The platform now includes a `/chat` endpoint that provides near-zero-cost RAG (Retrieval-Augmented Generation) capabilities. The endpoint reuses existing Qdrant vectors from `/ingest` and uses a lightweight chat model to synthesize answers from retrieved chunks.
+
+### Features
+
+- **RAG Chat**: Answer questions using retrieved context from ingested documents
+- **Reuses Vectors**: Does not re-embed documents, only embeds the user query
+- **Lightweight Model**: Uses `gpt-4o-mini` by default for cost efficiency
+- **Citations**: Returns source citations with each answer
+- **Graceful Handling**: Returns appropriate message when no context is found
+
+### Architecture
+
+```
+┌─────────────────┐
+│  POST /chat     │
+│  (User Query)   │
+└────────┬────────┘
+         │
+         ├─► OpenAI (embed query)
+         ├─► Qdrant (vector search)
+         ├─► Postgres (fetch chunk content)
+         ├─► OpenAI Chat (generate answer)
+         └─► Return answer + citations
+```
+
+### Environment Variables
+
+Add to your `.env` file:
+
+```bash
+CHAT_MODEL=gpt-4o-mini          # Optional, defaults to gpt-4o-mini
+CHAT_MAX_TOKENS=250             # Optional, defaults to 250
+```
+
+### API Endpoint
+
+#### POST /chat
+
+Chat endpoint with RAG capabilities.
+
+**Request:**
+```json
+{
+  "message": "what dishes are gluten free?",
+  "top_k": 5
+}
+```
+
+**Response:**
+```json
+{
+  "message": "what dishes are gluten free?",
+  "answer": "Based on the allergen policy, gluten-free options are available...",
+  "citations": [
+    {
+      "chunk_id": "660e8400-e29b-41d4-a716-446655440001",
+      "document_id": "550e8400-e29b-41d4-a716-446655440000",
+      "source": "policy",
+      "title": "Allergen Policy",
+      "chunk_index": 1,
+      "content": "Gluten-free options include...",
+      "score": 0.87
+    }
+  ]
+}
+```
+
+**No Results Response:**
+```json
+{
+  "message": "what is the weather?",
+  "answer": "I don't have enough information to answer that.",
+  "citations": []
+}
+```
+
+### Testing Instructions
+
+#### 1. Ensure Documents Are Ingested
+
+First, ingest some documents using `/ingest` (see v0.4 documentation).
+
+#### 2. Test Chat Endpoint
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "what dishes are gluten free?",
+    "top_k": 5
+  }'
+```
+
+Expected response includes:
+- `answer`: Generated answer based on retrieved context
+- `citations`: Array of source chunks with metadata
+
+#### 3. Test with No Context
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "what is the weather today?",
+    "top_k": 5
+  }'
+```
+
+Expected response:
+```json
+{
+  "message": "what is the weather today?",
+  "answer": "I don't have enough information to answer that.",
+  "citations": []
+}
+```
+
+### Implementation Details
+
+- **Query Embedding**: Uses the same embedding model as `/search` (`text-embedding-3-small`)
+- **Vector Reuse**: Retrieves existing vectors from Qdrant (no re-embedding of documents)
+- **Chat Model**: Configurable via `CHAT_MODEL` env var (default: `gpt-4o-mini`)
+- **Token Limit**: Configurable via `CHAT_MAX_TOKENS` env var (default: 250)
+- **Prompt Engineering**: Minimal prompt that forces answer only from provided context
+- **Citations**: Includes full metadata (document_id, source, title, chunk_index, content, score)
+
+### File Structure
+
+```
+apps/ai-api/app/
+├── main.py              # FastAPI app with /chat endpoint
+├── openai_chat.py       # Chat answer generation (NEW)
+├── schema.py            # Postgres schema initialization
+├── ingest.py            # Chunking and ingestion logic
+├── openai_client.py     # OpenAI embedding client
+├── qdrant_client.py     # Qdrant client
+└── database.py          # Postgres connection
 ```
 
 ---

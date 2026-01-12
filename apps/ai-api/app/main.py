@@ -8,9 +8,10 @@ from app.qdrant_client import check_qdrant, ensure_collection_exists, COLLECTION
 from app.schema import ensure_schema_exists
 from app.ingest import ingest_document
 from app.openai_client import get_embedding
+from app.openai_chat import generate_answer
 from sqlalchemy import text
 
-app = FastAPI(title="AI API", version="0.4.0")
+app = FastAPI(title="AI API", version="0.5.0")
 
 
 # Request/Response models
@@ -44,6 +45,27 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     query: str
     results: List[SearchResult]
+
+
+class ChatRequest(BaseModel):
+    message: str
+    top_k: int = 5
+
+
+class Citation(BaseModel):
+    chunk_id: str
+    document_id: str
+    source: str
+    title: str
+    chunk_index: int
+    content: str
+    score: float
+
+
+class ChatResponse(BaseModel):
+    message: str
+    answer: str
+    citations: List[Citation]
 
 
 @app.on_event("startup")
@@ -105,7 +127,7 @@ async def ready():
 
 @app.get("/")
 async def root():
-    return {"name": "ai-api", "version": "0.4.0"}
+    return {"name": "ai-api", "version": "0.5.0"}
 
 
 @app.post("/ingest", response_model=IngestResponse, status_code=status.HTTP_201_CREATED)
@@ -241,4 +263,84 @@ async def get_document(document_id: str):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to fetch document: {str(e)}"
+        )
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest):
+    """
+    Chat endpoint with RAG: embed query, retrieve chunks, generate answer.
+    Reuses existing Qdrant vectors (does not re-embed documents).
+    """
+    try:
+        # 1. Embed the user query (same as /search)
+        query_embedding = await get_embedding(request.message)
+        
+        # 2. Retrieve top_k chunks from Qdrant
+        qdrant = get_qdrant_client()
+        search_results = qdrant.search(
+            collection_name=COLLECTION_NAME,
+            query_vector=query_embedding,
+            limit=request.top_k
+        )
+        
+        # 3. Fetch chunk contents from Postgres and build citations
+        engine = get_engine()
+        citations = []
+        contexts = []
+        
+        async with engine.connect() as conn:
+            for hit in search_results:
+                chunk_id = str(hit.id)
+                
+                # Fetch chunk content from Postgres
+                result = await conn.execute(
+                    text("""
+                        SELECT c.id, c.document_id, c.chunk_index, c.content,
+                               d.source, d.title
+                        FROM chunks c
+                        JOIN documents d ON c.document_id = d.id
+                        WHERE c.id = :chunk_id
+                    """),
+                    {"chunk_id": chunk_id}
+                )
+                row = result.fetchone()
+                
+                if row:
+                    citation = Citation(
+                        chunk_id=str(row[0]),
+                        document_id=str(row[1]),
+                        source=row[4],
+                        title=row[5],
+                        chunk_index=row[2],
+                        content=row[3],
+                        score=hit.score
+                    )
+                    citations.append(citation)
+                    contexts.append(row[3])  # Add content to contexts for answer generation
+        
+        # 4. Generate answer from contexts using lightweight chat model
+        if not contexts:
+            answer = "I don't have enough information to answer that."
+        else:
+            answer = await generate_answer(
+                message=request.message,
+                contexts=contexts
+            )
+        
+        return ChatResponse(
+            message=request.message,
+            answer=answer,
+            citations=citations
+        )
+    except ValueError as e:
+        # OPENAI_API_KEY missing or other configuration error
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to generate chat response: {str(e)}"
         )
