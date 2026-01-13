@@ -84,7 +84,7 @@ services:
       - traefik.http.routers.ui-https.rule=Host(`${DOMAIN_UI}`)
       - traefik.http.routers.ui-https.entrypoints=websecure
       - traefik.http.routers.ui-https.tls=true
-      - traefik.http.routers.ui-https.tls.certresolver=le
+      - traefik.http.routers.ui-https.tls.certresolver=letsencrypt
       - traefik.http.services.ui.loadbalancer.server.port=3000
 
 networks:
