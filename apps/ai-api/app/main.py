@@ -15,7 +15,7 @@ from app.auth import verify_api_key, get_default_tenant_id
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sqlalchemy import text
 
-app = FastAPI(title="AI API", version="0.7.0")
+app = FastAPI(title="AI API", version="0.7.1")
 
 # Configure CORS
 app.add_middleware(
@@ -24,6 +24,7 @@ app.add_middleware(
         "http://localhost:3000",  # Next.js dev server
         "http://localhost:3001",  # Alternative port
         "https://api.demo.helioncity.com",  # Production API (if UI is served from same domain)
+        "https://demo.helioncity.com",  # Production UI
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -147,7 +148,7 @@ async def ready():
 
 @app.get("/")
 async def root():
-    return {"name": "ai-api", "version": "0.7.0"}
+    return {"name": "ai-api", "version": "0.7.1"}
 
 
 @app.post("/ingest", response_model=IngestResponse, status_code=status.HTTP_201_CREATED)

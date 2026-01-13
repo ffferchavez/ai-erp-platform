@@ -1008,6 +1008,10 @@ apps/ai-api/app/
 
 Platform v0.7 adds a minimal, production-lean UI built with Next.js (App Router), TypeScript, and Tailwind CSS. The UI demonstrates the AI ERP Platform working end-to-end for the restaurant demo tenant, providing a chat interface and document management capabilities.
 
+The UI is deployed behind Traefik on the VPS:
+- **UI**: `https://demo.helioncity.com` - Public-facing Next.js application
+- **API**: `https://api.demo.helioncity.com` - FastAPI backend (unchanged)
+
 ### Features
 
 - **Chat Interface**: Interactive chat panel with RAG-powered responses
@@ -1074,6 +1078,55 @@ The UI will be available at `http://localhost:3000`
 npm run build
 npm start
 ```
+
+### VPS Deployment
+
+The UI is deployed as a Docker container behind Traefik, sharing the same infrastructure as the API.
+
+#### 1. Environment Setup
+
+Add the following to your `infra/.env` file:
+
+```bash
+DOMAIN_UI=demo.helioncity.com
+NEXT_PUBLIC_API_BASE=https://api.demo.helioncity.com
+```
+
+**Note**: Make sure `DOMAIN_API` is also set (e.g., `DOMAIN_API=api.demo.helioncity.com`).
+
+#### 2. Deploy
+
+```bash
+cd infra
+docker compose up -d --build
+```
+
+This will:
+- Build the UI Docker image using the multi-stage Dockerfile
+- Start the UI container on port 3000 (internal)
+- Configure Traefik to route `https://demo.helioncity.com` to the UI service
+- Automatically generate Let's Encrypt SSL certificate for the UI domain
+
+#### 3. Verify Deployment
+
+```bash
+# Check containers
+docker compose ps
+
+# Check UI logs
+docker compose logs -f ui
+
+# Test UI endpoint
+curl https://demo.helioncity.com
+```
+
+#### 4. DNS Configuration
+
+Ensure DNS is configured before deployment:
+- `demo.helioncity.com` → Your VPS IP address
+- `api.demo.helioncity.com` → Your VPS IP address
+
+Both domains point to the same server; Traefik routes based on the Host header.
 
 ### Pages
 
@@ -1205,6 +1258,8 @@ interface ApiConfig {
 - Backend behavior unchanged—UI only consumes existing API
 - All API calls respect tenant_id isolation
 - Protected endpoints require API key as per v0.6 security model
+- UI calls API via `NEXT_PUBLIC_API_BASE` environment variable
+- CORS is configured to allow requests from `https://demo.helioncity.com`
 
 ---
 
