@@ -66,17 +66,38 @@ services:
       timeout: 3s
       retries: 5
 
+  # ERPNext init container (fixes permissions)
+  erpnext-init:
+    image: frappe/bench:latest
+    container_name: erpnext-init
+    user: root
+    volumes:
+      - erpnext-sites:/home/frappe/frappe-bench/sites
+      - erpnext-logs:/home/frappe/frappe-bench/logs
+    networks:
+      - platform
+    command: >
+      sh -c "
+      mkdir -p /home/frappe/frappe-bench/sites /home/frappe/frappe-bench/logs &&
+      chown -R frappe:frappe /home/frappe/frappe-bench/sites /home/frappe/frappe-bench/logs &&
+      chmod -R 755 /home/frappe/frappe-bench/sites /home/frappe/frappe-bench/logs &&
+      echo 'Permissions fixed successfully' &&
+      exit 0
+      "
+    restart: "no"
+
   # ERPNext application (frappe/bench for site management)
   erpnext:
     image: frappe/bench:latest
     container_name: erpnext
-    working_dir: /home/frappe/frappe-bench
     restart: unless-stopped
     depends_on:
       erpnext-db:
         condition: service_healthy
       erpnext-redis:
         condition: service_healthy
+      erpnext-init:
+        condition: service_completed_successfully
     environment:
       - DB_HOST=erpnext-db
       - DB_PORT=3306
@@ -96,23 +117,15 @@ services:
     networks:
       - platform
     command: >
-      sh -c "
+      bash -lc "
       cd /home/frappe/frappe-bench || exit 1;
-
-      SITE=${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com};
-
-      if [ ! -f /home/frappe/frappe-bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
+      touch /home/frappe/frappe-bench/logs/bench.log 2>/dev/null || true;
+      SITE_NAME='${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}';
+      if [ ! -f sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
         echo 'Site not found, creating new site...';
-        bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} \
-          --db-host ${DB_HOST:-erpnext-db} \
-          --db-port ${DB_PORT:-3306} \
-          --db-root-username root \
-          --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} \
-          --admin-password ${ERPNEXT_ADMIN_PASSWORD} \
-          --install-app erpnext;
+        bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext || exit 1;
       fi;
-
-      bench start
+      bench serve --host 0.0.0.0 --port 8000
       "
     labels:
       - traefik.enable=true
