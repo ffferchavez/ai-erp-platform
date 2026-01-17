@@ -7,8 +7,10 @@
 infra/.env.demo-apps
 .env*
 
-# Keep .env.example for documentation
+# Keep env example templates for documentation
 !.env.example
+!.env*.example
+!infra/.env*.example
 
 # Docker volumes data
 infra/traefik-letsencrypt/
