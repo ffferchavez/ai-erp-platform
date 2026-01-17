@@ -70,6 +70,7 @@ services:
   erpnext:
     image: frappe/bench:latest
     container_name: erpnext
+    working_dir: /home/frappe/frappe-bench
     restart: unless-stopped
     depends_on:
       erpnext-db:
@@ -96,11 +97,22 @@ services:
       - platform
     command: >
       sh -c "
+      cd /home/frappe/frappe-bench || exit 1;
+
+      SITE=${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com};
+
       if [ ! -f /home/frappe/frappe-bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
         echo 'Site not found, creating new site...';
-        bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext || true;
+        bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} \
+          --db-host ${DB_HOST:-erpnext-db} \
+          --db-port ${DB_PORT:-3306} \
+          --db-root-username root \
+          --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} \
+          --admin-password ${ERPNEXT_ADMIN_PASSWORD} \
+          --install-app erpnext;
       fi;
-      bench serve --host 0.0.0.0 --port 8000
+
+      bench start
       "
     labels:
       - traefik.enable=true
