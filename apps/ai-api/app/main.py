@@ -6,16 +6,17 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 from app.database import check_postgres, get_engine
-from app.qdrant_client import check_qdrant, ensure_collection_exists, COLLECTION_NAME, get_qdrant_client
-from app.schema import ensure_schema_exists
+from app.qdrant_client import check_qdrant, ensure_collection_exists, COLLECTION_NAME, get_qdrant_client, delete_points_by_tenant
+from app.schema import ensure_schema_exists, delete_tenant_data
 from app.ingest import ingest_document
 from app.openai_client import get_embedding
 from app.openai_chat import generate_answer
 from app.auth import verify_api_key, get_default_tenant_id
+from app.seed import get_seed_documents
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sqlalchemy import text
 
-app = FastAPI(title="AI API", version="0.7.1")
+app = FastAPI(title="AI API", version="0.8.0")
 
 # Configure CORS
 app.add_middleware(
@@ -148,7 +149,7 @@ async def ready():
 
 @app.get("/")
 async def root():
-    return {"name": "ai-api", "version": "0.7.1"}
+    return {"name": "ai-api", "version": "0.8.0"}
 
 
 @app.post("/ingest", response_model=IngestResponse, status_code=status.HTTP_201_CREATED)
@@ -513,4 +514,148 @@ async def chat(request: ChatRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to generate chat response: {str(e)}"
+        )
+
+
+# Admin endpoints for v0.8
+class AdminResetRequest(BaseModel):
+    tenant_id: Optional[str] = None
+
+
+class AdminResetResponse(BaseModel):
+    status: str
+    tenant_id: str
+    deleted_postgres_documents: int
+    deleted_postgres_chunks: int
+    deleted_qdrant_points: int
+
+
+class DocumentSeedInfo(BaseModel):
+    title: str
+    document_id: str
+    chunks: int
+
+
+class AdminSeedResponse(BaseModel):
+    status: str
+    tenant_id: str
+    documents: List[DocumentSeedInfo]
+
+
+class AdminResetSeedResponse(BaseModel):
+    status: str
+    tenant_id: str
+    reset: AdminResetResponse
+    seed: AdminSeedResponse
+
+
+@app.post("/admin/reset", response_model=AdminResetResponse, status_code=status.HTTP_200_OK)
+async def admin_reset(request: AdminResetRequest, api_key: str = Depends(verify_api_key)):
+    """
+    Reset a tenant: delete all Postgres documents/chunks and Qdrant points.
+    Requires X-API-Key header.
+    """
+    try:
+        tenant_id = request.tenant_id or get_default_tenant_id()
+        engine = get_engine()
+        
+        # Delete Postgres data
+        async with engine.begin() as conn:
+            docs_deleted, chunks_deleted = await delete_tenant_data(conn, tenant_id)
+        
+        # Delete Qdrant points
+        qdrant_deleted = delete_points_by_tenant(tenant_id)
+        
+        return AdminResetResponse(
+            status="reset",
+            tenant_id=tenant_id,
+            deleted_postgres_documents=docs_deleted,
+            deleted_postgres_chunks=chunks_deleted,
+            deleted_qdrant_points=qdrant_deleted
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reset tenant: {str(e)}"
+        )
+
+
+@app.post("/admin/seed", response_model=AdminSeedResponse, status_code=status.HTTP_201_CREATED)
+async def admin_seed(request: AdminResetRequest, api_key: str = Depends(verify_api_key)):
+    """
+    Seed a tenant with the default dataset.
+    Requires X-API-Key header.
+    """
+    try:
+        tenant_id = request.tenant_id or get_default_tenant_id()
+        seed_docs = get_seed_documents()
+        
+        # Ingest each seed document using existing ingest logic
+        document_results = []
+        for doc in seed_docs:
+            document_id, num_chunks = await ingest_document(
+                source=doc["source"],
+                title=doc["title"],
+                content=doc["content"],
+                tenant_id=tenant_id
+            )
+            document_results.append(
+                DocumentSeedInfo(
+                    title=doc["title"],
+                    document_id=document_id,
+                    chunks=num_chunks
+                )
+            )
+        
+        return AdminSeedResponse(
+            status="seeded",
+            tenant_id=tenant_id,
+            documents=document_results
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to seed tenant: {str(e)}"
+        )
+
+
+@app.post("/admin/reset-seed", response_model=AdminResetSeedResponse, status_code=status.HTTP_201_CREATED)
+async def admin_reset_seed(request: AdminResetRequest, api_key: str = Depends(verify_api_key)):
+    """
+    Reset and seed a tenant in one operation.
+    Requires X-API-Key header.
+    """
+    try:
+        tenant_id = request.tenant_id or get_default_tenant_id()
+        
+        # Call reset (create new request object)
+        reset_request_obj = AdminResetRequest(tenant_id=tenant_id)
+        reset_response = await admin_reset(reset_request_obj, api_key)
+        
+        # Call seed (create new request object)
+        seed_request_obj = AdminResetRequest(tenant_id=tenant_id)
+        seed_response = await admin_seed(seed_request_obj, api_key)
+        
+        return AdminResetSeedResponse(
+            status="reset-seeded",
+            tenant_id=tenant_id,
+            reset=reset_response,
+            seed=seed_response
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reset-seed tenant: {str(e)}"
         )

@@ -1,6 +1,6 @@
 import os
 from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams
+from qdrant_client.models import Distance, VectorParams, Filter, FieldCondition, MatchValue
 
 _qdrant_url = os.getenv("QDRANT_URL", "")
 _client: QdrantClient | None = None
@@ -54,3 +54,40 @@ async def ensure_collection_exists(vector_size: int):
                 distance=Distance.COSINE
             )
         )
+
+
+def delete_points_by_tenant(tenant_id: str) -> int:
+    """
+    Delete all Qdrant points for a specific tenant.
+    
+    Args:
+        tenant_id: Tenant ID to delete points for
+        
+    Returns:
+        Number of points deleted, or -1 if count not available
+    """
+    client = get_qdrant_client()
+    
+    # Create filter for tenant_id
+    tenant_filter = Filter(
+        must=[
+            FieldCondition(
+                key="tenant_id",
+                match=MatchValue(value=tenant_id)
+            )
+        ]
+    )
+    
+    # Delete points matching the filter
+    # Note: Qdrant delete doesn't return count directly, so we'll return -1
+    # and note this in the response
+    try:
+        client.delete(
+            collection_name=COLLECTION_NAME,
+            points_selector=tenant_filter
+        )
+        # Qdrant doesn't return deleted count, so return -1
+        return -1
+    except Exception as e:
+        # If deletion fails, raise the error
+        raise ValueError(f"Failed to delete Qdrant points for tenant {tenant_id}: {str(e)}")

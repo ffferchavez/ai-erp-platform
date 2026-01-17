@@ -93,3 +93,52 @@ async def ensure_schema_exists():
             CREATE INDEX IF NOT EXISTS idx_chunks_tenant_document 
             ON chunks(tenant_id, document_id)
         """))
+
+
+async def delete_tenant_data(conn, tenant_id: str) -> tuple[int, int]:
+    """
+    Delete all data for a tenant from Postgres.
+    
+    Args:
+        conn: SQLAlchemy connection (async)
+        tenant_id: Tenant ID to delete data for
+        
+    Returns:
+        Tuple of (documents_deleted, chunks_deleted)
+    """
+    # First, count chunks before deletion (for return value)
+    chunks_result = await conn.execute(
+        text("""
+            SELECT COUNT(*) FROM chunks WHERE tenant_id = :tenant_id
+        """),
+        {"tenant_id": tenant_id}
+    )
+    chunks_count = chunks_result.scalar() or 0
+    
+    # Count documents before deletion
+    docs_result = await conn.execute(
+        text("""
+            SELECT COUNT(*) FROM documents WHERE tenant_id = :tenant_id
+        """),
+        {"tenant_id": tenant_id}
+    )
+    docs_count = docs_result.scalar() or 0
+    
+    # Delete chunks first (they reference documents via FK)
+    # Note: CASCADE should handle this, but being explicit
+    await conn.execute(
+        text("""
+            DELETE FROM chunks WHERE tenant_id = :tenant_id
+        """),
+        {"tenant_id": tenant_id}
+    )
+    
+    # Delete documents
+    await conn.execute(
+        text("""
+            DELETE FROM documents WHERE tenant_id = :tenant_id
+        """),
+        {"tenant_id": tenant_id}
+    )
+    
+    return docs_count, chunks_count

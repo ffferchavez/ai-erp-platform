@@ -1263,4 +1263,205 @@ interface ApiConfig {
 
 ---
 
+## Platform v0.8 – Demo Reset + Seed Dataset
+
+### Overview
+
+Platform v0.8 adds protected admin endpoints for resetting and seeding demo tenants. This enables deterministic, repeatable demo resets with a standard restaurant dataset.
+
+### Features
+
+- **Reset Tenant**: Delete all Postgres documents/chunks and Qdrant points for a tenant
+- **Seed Tenant**: Ingest 8 standard restaurant documents into a tenant
+- **Reset-Seed**: Combined operation to reset and seed in one command
+- **Protected Endpoints**: All admin endpoints require `X-API-Key` header
+- **Deterministic**: Same seed dataset every time, always ends in clean state
+
+### Admin Endpoints
+
+All admin endpoints require `X-API-Key` header and are protected by the existing auth system.
+
+#### POST /admin/reset
+
+Reset a tenant by deleting all data.
+
+**Request Headers:**
+```
+X-API-Key: your-api-key
+```
+
+**Request Body:**
+```json
+{
+  "tenant_id": "demo"  // Optional, defaults to DEFAULT_TENANT_ID
+}
+```
+
+**Response (200 OK):**
+```json
+{
+  "status": "reset",
+  "tenant_id": "demo",
+  "deleted_postgres_documents": 5,
+  "deleted_postgres_chunks": 12,
+  "deleted_qdrant_points": -1  // -1 if Qdrant doesn't return count
+}
+```
+
+#### POST /admin/seed
+
+Seed a tenant with the standard restaurant dataset (8 documents).
+
+**Request Headers:**
+```
+X-API-Key: your-api-key
+```
+
+**Request Body:**
+```json
+{
+  "tenant_id": "demo"  // Optional, defaults to DEFAULT_TENANT_ID
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "status": "seeded",
+  "tenant_id": "demo",
+  "documents": [
+    {
+      "title": "Restaurant Overview",
+      "document_id": "550e8400-e29b-41d4-a716-446655440000",
+      "chunks": 1
+    },
+    {
+      "title": "Opening Hours",
+      "document_id": "660e8400-e29b-41d4-a716-446655440001",
+      "chunks": 1
+    }
+    // ... 6 more documents
+  ]
+}
+```
+
+#### POST /admin/reset-seed
+
+Reset and seed a tenant in one operation.
+
+**Request Headers:**
+```
+X-API-Key: your-api-key
+```
+
+**Request Body:**
+```json
+{
+  "tenant_id": "demo"  // Optional, defaults to DEFAULT_TENANT_ID
+}
+```
+
+**Response (201 Created):**
+```json
+{
+  "status": "reset-seeded",
+  "tenant_id": "demo",
+  "reset": {
+    "status": "reset",
+    "tenant_id": "demo",
+    "deleted_postgres_documents": 5,
+    "deleted_postgres_chunks": 12,
+    "deleted_qdrant_points": -1
+  },
+  "seed": {
+    "status": "seeded",
+    "tenant_id": "demo",
+    "documents": [...]
+  }
+}
+```
+
+### Seed Dataset
+
+The seed dataset includes 8 documents:
+
+1. **Restaurant Overview** - Name, address, contact info
+2. **Opening Hours** - Operating hours and holiday policy
+3. **Reservations Policy** - Booking rules and group policies
+4. **Allergens & Food Safety** - Allergen handling information
+5. **Delivery & Pickup** - Delivery radius, minimum orders, timing
+6. **Payments & Receipts** - Accepted payment methods
+7. **Refunds & Complaints** - Complaint handling process
+8. **Staff SOP (Closing Checklist)** - Closing procedures
+
+### Testing Instructions
+
+#### Setup Environment Variables
+
+```bash
+export BASE=https://api.demo.helioncity.com
+export API_KEY=your-secret-api-key-here
+export TENANT=demo
+```
+
+#### Reset Demo Tenant
+
+```bash
+curl -X POST "${BASE}/admin/reset" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${API_KEY}" \
+  -d "{\"tenant_id\": \"${TENANT}\"}"
+```
+
+#### Seed Demo Tenant
+
+```bash
+curl -X POST "${BASE}/admin/seed" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${API_KEY}" \
+  -d "{\"tenant_id\": \"${TENANT}\"}"
+```
+
+#### Reset and Seed Demo Tenant (One Command)
+
+```bash
+curl -X POST "${BASE}/admin/reset-seed" \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: ${API_KEY}" \
+  -d "{\"tenant_id\": \"${TENANT}\"}"
+```
+
+### Implementation Details
+
+- **Seed Dataset**: Defined in `apps/ai-api/app/seed.py` as a list of documents
+- **Reset Logic**: 
+  - Deletes Postgres rows via `delete_tenant_data()` in `schema.py`
+  - Deletes Qdrant points via `delete_points_by_tenant()` in `qdrant_client.py`
+- **Seed Logic**: Uses existing `ingest_document()` function from `ingest.py`
+- **Error Handling**: Clear error messages, proper HTTP status codes
+- **Tenant Isolation**: All operations respect tenant_id boundaries
+
+### File Structure
+
+```
+apps/ai-api/app/
+├── main.py              # FastAPI app with admin endpoints (v0.8)
+├── seed.py              # Seed dataset definition (NEW)
+├── schema.py            # Postgres schema + delete_tenant_data() (UPDATED)
+├── qdrant_client.py     # Qdrant client + delete_points_by_tenant() (UPDATED)
+├── ingest.py            # Document ingestion (unchanged)
+├── auth.py              # API key verification (unchanged)
+└── ...
+```
+
+### Notes
+
+- Reset operations are **destructive** - all tenant data is permanently deleted
+- Seed operations use OpenAI embeddings - ensure `OPENAI_API_KEY` is set
+- Qdrant deletion count may return -1 if Qdrant doesn't provide count
+- All admin endpoints require API key authentication
+- Default tenant uses `DEFAULT_TENANT_ID` environment variable if not specified
+
+---
+
 **Platform v0.1** - Stable file-provider Traefik architecture
