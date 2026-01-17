@@ -32,6 +32,7 @@ export interface ChatResponse {
   message: string;
   answer: string;
   citations: Citation[];
+  request_id?: string;
 }
 
 export interface Document {

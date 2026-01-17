@@ -1640,4 +1640,240 @@ apps/ui/app/
 
 ---
 
+## Platform v1.0 – Production-Demo Hardening
+
+### Overview
+
+Platform v1.0 adds production-grade observability, cost controls, safe admin access, and UI polish. This version focuses on hardening the demo platform for production use while maintaining simplicity.
+
+### Features
+
+- **Structured Logging**: Request tracking with request_id and OpenAI call logging
+- **Environment Defaults**: Configurable defaults for all key parameters
+- **Admin IP Allowlist**: Optional IP-based access control for admin endpoints
+- **UI Improvements**: Confirmation modals, demo script, request_id display, API key warnings
+
+### Structured Logging
+
+All OpenAI API calls are logged with structured data:
+
+**Embedding Calls:**
+- `event="openai_embedding"`
+- `tenant_id`, `model`, `duration_ms`, `success`, `error_type`, `request_id`, `text_count`
+
+**Chat Completion Calls:**
+- `event="openai_chat"`
+- `tenant_id`, `model`, `duration_ms`, `success`, `error_type`, `request_id`, `context_count`
+
+Logs are written using Python's `logging` module with structured `extra` fields for easy parsing.
+
+### Request ID Tracking
+
+- Every request gets a unique `request_id` (UUID) via middleware
+- `request_id` is attached to request state and included in response headers (`X-Request-ID`)
+- `request_id` is included in `/chat` responses and all OpenAI call logs
+- Useful for tracing requests across services and debugging
+
+### Environment Defaults
+
+All key parameters can be configured via environment variables:
+
+```bash
+# Chat/Search defaults
+MIN_SCORE_DEFAULT=0.45          # Minimum relevance score (default: 0.45)
+MAX_CITATIONS_DEFAULT=3          # Maximum citations to return (default: 3)
+TOP_K_DEFAULT=5                 # Number of chunks to retrieve (default: 5)
+
+# Ingestion defaults
+CHUNK_SIZE=800                  # Characters per chunk (default: 800)
+CHUNK_OVERLAP=120               # Overlap between chunks (default: 120)
+
+# Admin security
+ADMIN_IP_ALLOWLIST=1.2.3.4,10.0.0.0/8  # Comma-separated IPs/CIDRs (optional)
+```
+
+**Usage:**
+- If not set in request, endpoints use these defaults
+- Request-level values override defaults
+- Allows global tuning without code changes
+
+### Admin IP Allowlist
+
+**Configuration:**
+- `ADMIN_IP_ALLOWLIST` - Comma-separated list of IPs/CIDRs (optional)
+- If set, only requests from allowed IPs can access `/admin/*` endpoints
+- Still requires `X-API-Key` header (both checks must pass)
+- If not set, allowlist is disabled (backward compatible)
+
+**Example:**
+```bash
+ADMIN_IP_ALLOWLIST=203.0.113.0/24,198.51.100.1
+```
+
+**Behavior:**
+- Checks `X-Forwarded-For` header first (for Traefik)
+- Falls back to `request.client.host`
+- Supports CIDR notation (e.g., `10.0.0.0/8`)
+- Returns HTTP 403 if IP not allowed
+
+### UI Improvements
+
+#### Admin Panel Enhancements
+
+1. **Confirmation Modal**: 
+   - Shows before reset/reset-seed operations
+   - Prevents accidental data deletion
+   - Clear warning about destructive nature
+
+2. **Demo Script Section**:
+   - 8 preset questions for quick testing
+   - One-click chat testing
+   - Shows answers and citations inline
+   - Displays request_id for each response
+
+3. **Request ID Display**:
+   - Shown under chat answers (small text)
+   - Helps with debugging and support
+   - Links requests to logs
+
+4. **API Key Warning Banner**:
+   - Appears when API key is entered
+   - Reminds users it's sensitive
+   - Notes that key is not persisted
+
+### API Changes
+
+#### POST /chat
+
+**Response now includes:**
+```json
+{
+  "message": "...",
+  "answer": "...",
+  "citations": [...],
+  "request_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+**Request fields use env defaults if not provided:**
+- `top_k`: Defaults to `TOP_K_DEFAULT` (5)
+- `min_score`: Defaults to `MIN_SCORE_DEFAULT` (0.45)
+- `max_citations`: Defaults to `MAX_CITATIONS_DEFAULT` (3)
+
+#### POST /search
+
+**Request fields use env defaults if not provided:**
+- `top_k`: Defaults to `TOP_K_DEFAULT` (5)
+- `min_score`: Defaults to `MIN_SCORE_DEFAULT` (0.45)
+
+#### POST /admin/*
+
+**New Security:**
+- Optional IP allowlist check (if `ADMIN_IP_ALLOWLIST` is set)
+- Still requires `X-API-Key` header
+- Returns HTTP 403 if IP not allowed
+
+### Logging Configuration
+
+Structured logs are written using Python's `logging` module. To configure:
+
+```python
+import logging
+
+# Set log level
+logging.basicConfig(level=logging.INFO)
+
+# Or configure JSON logging for production
+import json_logging
+json_logging.init_fastapi()
+```
+
+### Testing Instructions
+
+#### Test Request ID
+
+```bash
+curl -X POST "${BASE}/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"test"}' \
+  -v
+
+# Check response for request_id field
+# Check X-Request-ID header
+```
+
+#### Test Admin IP Allowlist
+
+```bash
+# Set allowlist
+export ADMIN_IP_ALLOWLIST=127.0.0.1
+
+# Restart API
+docker compose restart ai-api
+
+# Test from allowed IP (should work)
+curl -X POST "${BASE}/admin/reset" \
+  -H "X-API-Key: ${API_KEY}" \
+  -H "Content-Type: application/json" \
+  -d '{"tenant_id":"demo"}'
+
+# Test from disallowed IP (should get 403)
+# (requires testing from different IP)
+```
+
+#### Test Environment Defaults
+
+```bash
+# Set custom defaults
+export MIN_SCORE_DEFAULT=0.5
+export MAX_CITATIONS_DEFAULT=2
+
+# Restart API
+docker compose restart ai-api
+
+# Request without fields (should use defaults)
+curl -X POST "${BASE}/chat" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"test"}'
+```
+
+### Implementation Details
+
+- **Request ID Middleware**: Generates UUID per request, attaches to state
+- **Structured Logging**: Uses Python `logging` with `extra` dict for structured fields
+- **IP Allowlist**: Uses `ipaddress` module for CIDR matching
+- **Env Defaults**: Read at startup, applied when request fields are None
+- **No Breaking Changes**: All new fields are optional, defaults maintain backward compatibility
+
+### File Structure
+
+```
+apps/ai-api/app/
+├── main.py              # FastAPI app (v1.0 - request_id, env defaults, admin IP)
+├── request_id.py        # Request ID middleware (NEW)
+├── admin_ip.py          # Admin IP allowlist middleware (NEW)
+├── rate_limit.py        # Rate limiting middleware
+├── openai_client.py     # Embedding client (updated with logging)
+├── openai_chat.py       # Chat client (updated with logging)
+├── ingest.py            # Ingestion (updated with env defaults)
+└── ...
+
+apps/ui/app/
+├── admin/
+│   └── page.tsx         # Admin panel (updated with modals, demo script)
+├── page.tsx             # Home page (updated with request_id display)
+└── lib/
+    └── api.ts           # API client (updated with request_id)
+```
+
+### Notes
+
+- Request IDs are UUIDs (v4) - globally unique
+- Logging uses standard Python logging - integrate with your log aggregation
+- IP allowlist is optional - set `ADMIN_IP_ALLOWLIST` to enable
+- All env defaults have sensible defaults - no breaking changes
+- UI improvements are backward compatible - existing functionality unchanged
+
+---
+
 **Platform v0.1** - Stable file-provider Traefik architecture

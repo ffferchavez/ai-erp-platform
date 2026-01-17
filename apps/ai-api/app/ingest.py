@@ -1,6 +1,7 @@
 """
 Ingestion logic: chunking, embedding, and storing documents.
 """
+import os
 import uuid
 from typing import List, Tuple
 from sqlalchemy import text
@@ -9,19 +10,26 @@ from app.qdrant_client import get_qdrant_client, ensure_collection_exists
 from app.openai_client import get_embeddings
 from app.auth import get_default_tenant_id
 
+# Environment defaults
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
 
-def chunk_text(content: str, chunk_size: int = 800, overlap: int = 120) -> List[str]:
+
+def chunk_text(content: str, chunk_size: int = None, overlap: int = None) -> List[str]:
     """
     Split text into chunks with overlap.
     
     Args:
         content: Text content to chunk
-        chunk_size: Maximum characters per chunk
-        overlap: Number of characters to overlap between chunks
+        chunk_size: Maximum characters per chunk (defaults to CHUNK_SIZE env var)
+        overlap: Number of characters to overlap between chunks (defaults to CHUNK_OVERLAP env var)
         
     Returns:
         List of chunk strings (deterministic)
     """
+    chunk_size = chunk_size if chunk_size is not None else CHUNK_SIZE
+    overlap = overlap if overlap is not None else CHUNK_OVERLAP
+    
     if len(content) <= chunk_size:
         return [content]
     

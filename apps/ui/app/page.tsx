@@ -183,6 +183,11 @@ export default function Home() {
               <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap">
                 {response.answer}
               </p>
+              {response.request_id && (
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">
+                  Request ID: {response.request_id}
+                </p>
+              )}
             </div>
 
             {/* Citations */}

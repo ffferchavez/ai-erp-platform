@@ -1,5 +1,5 @@
 import os
-from fastapi import FastAPI, status, HTTPException, Query, Depends
+from fastapi import FastAPI, status, HTTPException, Query, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -14,13 +14,24 @@ from app.openai_chat import generate_answer
 from app.auth import verify_api_key, get_default_tenant_id
 from app.seed import get_seed_documents
 from app.rate_limit import RateLimitMiddleware
+from app.request_id import RequestIDMiddleware
+from app.admin_ip import AdminIPAllowlistMiddleware
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sqlalchemy import text
 
-app = FastAPI(title="AI API", version="0.9.0")
+app = FastAPI(title="AI API", version="1.0.0")
 
-# Add rate limiting middleware (applies to /chat and /search)
+# Environment defaults
+MIN_SCORE_DEFAULT = float(os.getenv("MIN_SCORE_DEFAULT", "0.45"))
+MAX_CITATIONS_DEFAULT = int(os.getenv("MAX_CITATIONS_DEFAULT", "3"))
+TOP_K_DEFAULT = int(os.getenv("TOP_K_DEFAULT", "5"))
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
+
+# Add middlewares (order matters - request_id first, then rate limit, then admin IP)
+app.add_middleware(RequestIDMiddleware)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(AdminIPAllowlistMiddleware)
 
 # Configure CORS
 app.add_middleware(
@@ -53,8 +64,8 @@ class IngestResponse(BaseModel):
 
 class SearchRequest(BaseModel):
     query: str
-    top_k: int = 5
-    min_score: float = 0.45
+    top_k: Optional[int] = None
+    min_score: Optional[float] = None
     tenant_id: Optional[str] = None
 
 
@@ -75,9 +86,9 @@ class SearchResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
-    top_k: int = 5
-    min_score: float = 0.45
-    max_citations: int = 3
+    top_k: Optional[int] = None
+    min_score: Optional[float] = None
+    max_citations: Optional[int] = None
     tenant_id: Optional[str] = None
 
 
@@ -193,16 +204,19 @@ async def ingest(request: IngestRequest, api_key: str = Depends(verify_api_key))
 
 
 @app.post("/search", response_model=SearchResponse)
-async def search(request: SearchRequest):
+async def search(request: SearchRequest, http_request: Request):
     """
     Search for documents using semantic search.
     Public endpoint - filters by tenant_id.
     """
     try:
         tenant_id = request.tenant_id or get_default_tenant_id()
+        top_k = request.top_k if request.top_k is not None else TOP_K_DEFAULT
+        min_score = request.min_score if request.min_score is not None else MIN_SCORE_DEFAULT
+        request_id = getattr(http_request.state, "request_id", None)
         
         # Embed the query
-        query_embedding = await get_embedding(request.query)
+        query_embedding = await get_embedding(request.query, tenant_id=tenant_id, request_id=request_id)
         
         # Search Qdrant with tenant filter
         qdrant = get_qdrant_client()
@@ -217,7 +231,7 @@ async def search(request: SearchRequest):
                     )
                 ]
             ),
-            limit=request.top_k
+            limit=top_k
         )
         
         # Fetch chunk contents from Postgres (also filter by tenant_id for safety)
@@ -227,7 +241,7 @@ async def search(request: SearchRequest):
         async with engine.connect() as conn:
             for hit in search_results:
                 # Filter by min_score
-                if hit.score < request.min_score:
+                if hit.score < min_score:
                     continue
                 
                 chunk_id = str(hit.id)
@@ -438,7 +452,7 @@ async def delete_document(document_id: str, tenant_id: Optional[str] = Query(Non
 
 
 @app.post("/chat", response_model=ChatResponse)
-async def chat(request: ChatRequest):
+async def chat(request: ChatRequest, http_request: Request):
     """
     Chat endpoint with RAG: embed query, retrieve chunks, generate answer.
     Reuses existing Qdrant vectors (does not re-embed documents).
@@ -446,9 +460,13 @@ async def chat(request: ChatRequest):
     """
     try:
         tenant_id = request.tenant_id or get_default_tenant_id()
+        top_k = request.top_k if request.top_k is not None else TOP_K_DEFAULT
+        min_score = request.min_score if request.min_score is not None else MIN_SCORE_DEFAULT
+        max_citations = request.max_citations if request.max_citations is not None else MAX_CITATIONS_DEFAULT
+        request_id = getattr(http_request.state, "request_id", None)
         
         # 1. Embed the user query (same as /search)
-        query_embedding = await get_embedding(request.message)
+        query_embedding = await get_embedding(request.message, tenant_id=tenant_id, request_id=request_id)
         
         # 2. Retrieve top_k chunks from Qdrant with tenant filter
         qdrant = get_qdrant_client()
@@ -463,7 +481,7 @@ async def chat(request: ChatRequest):
                     )
                 ]
             ),
-            limit=request.top_k
+            limit=top_k
         )
         
         # 3. Fetch chunk contents from Postgres and build citations (also filter by tenant_id)
@@ -475,7 +493,7 @@ async def chat(request: ChatRequest):
         async with engine.connect() as conn:
             for hit in search_results:
                 # Filter by min_score
-                if hit.score < request.min_score:
+                if hit.score < min_score:
                     continue
                 
                 chunk_id = str(hit.id)
@@ -514,17 +532,20 @@ async def chat(request: ChatRequest):
         else:
             answer = await generate_answer(
                 message=request.message,
-                contexts=contexts
+                contexts=contexts,
+                tenant_id=tenant_id,
+                request_id=request_id
             )
             
             # Limit citations to max_citations (highest score first)
             # Citations are already sorted by score (descending) from Qdrant
-            citations = citations[:request.max_citations]
+            citations = citations[:max_citations]
         
         return ChatResponse(
             message=request.message,
             answer=answer,
-            citations=citations
+            citations=citations,
+            request_id=request_id
         )
     except ValueError as e:
         # OPENAI_API_KEY missing or other configuration error
