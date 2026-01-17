@@ -3,6 +3,10 @@
 .env.local
 .env.*.local
 
+.env.demo-apps
+infra/.env.demo-apps
+.env*
+
 # Keep .env.example for documentation
 !.env.example
 

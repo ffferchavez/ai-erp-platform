@@ -2,6 +2,18 @@
 
 Production-ready VPS deployment using Docker Compose with Traefik v3 reverse proxy.
 
+## Milestones
+
+- **v1.1.0** - Demo apps added (ERPNext + n8n)
+- **v1.0.0** - Production-demo hardening (observability + cost controls + safe admin access)
+- **v0.9.0** - Demo polish + guardrails (rate limiting, score filtering, admin UI)
+- **v0.8.0** - Demo reset + seed dataset (admin endpoints)
+- **v0.7.0** - UI deployment (Next.js behind Traefik)
+- **v0.6.0** - Authentication (API key protection)
+- **v0.5.0** - Chat endpoint (RAG with Qdrant)
+- **v0.4.0** - Document ingestion (chunking + embeddings)
+- **v0.1.0** - Stable file-provider Traefik architecture
+
 ## 🏗️ Architecture
 
 ```
@@ -1873,6 +1885,174 @@ apps/ui/app/
 - IP allowlist is optional - set `ADMIN_IP_ALLOWLIST` to enable
 - All env defaults have sensible defaults - no breaking changes
 - UI improvements are backward compatible - existing functionality unchanged
+
+---
+
+## Platform v1.1 – Demo Apps: ERPNext + n8n
+
+### Overview
+
+Platform v1.1 adds ERPNext (ERP system) and n8n (workflow automation) as demo applications running on the same VPS behind the existing Traefik reverse proxy.
+
+### Features
+
+- **ERPNext**: Full-featured ERP system accessible at `erp.demo.helioncity.com`
+- **n8n**: Workflow automation platform accessible at `n8n.demo.helioncity.com`
+- **Shared Infrastructure**: Uses existing Traefik, Docker network, and Let's Encrypt certificates
+- **Separate Compose File**: Demo apps in `docker-compose.demo-apps.yml` (doesn't affect main stack)
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Traefik v3.6.1                      │
+│  ┌──────────────┐         ┌──────────────┐             │
+│  │  Port 80    │────────▶│  Port 443    │             │
+│  │  (HTTP)     │         │  (HTTPS)     │             │
+│  └──────────────┘         └──────────────┘             │
+│         │                        │                      │
+│         └────────┬─────────────────┘                    │
+│                  │                                      │
+│         ┌────────▼────────┐                            │
+│         │ Docker Provider │                            │
+│         │  (Labels)       │                            │
+│         └────────┬─────────┘                            │
+└──────────────────┼────────────────────────────────────┘
+                   │
+    ┌──────────────┼──────────────┐
+    │              │              │
+┌───▼───┐    ┌─────▼─────┐  ┌────▼────┐
+│ ERPNext│   │    n8n    │  │ ai-api  │
+│ :8000  │   │  :5678    │  │  :8000  │
+└────────┘   └───────────┘  └─────────┘
+```
+
+### n8n Configuration
+
+**Access:** `https://n8n.demo.helioncity.com`
+
+**Features:**
+- Workflow automation platform
+- Basic authentication enabled
+- Webhook support configured
+- Data persisted to volume
+
+**Environment Variables:**
+- `N8N_HOST`: Domain name (default: `n8n.demo.helioncity.com`)
+- `N8N_PROTOCOL`: Protocol (default: `https`)
+- `N8N_PORT`: Internal port (default: `5678`)
+- `WEBHOOK_URL`: Webhook base URL
+- `N8N_EDITOR_BASE_URL`: Editor base URL
+- `N8N_BASIC_AUTH_USER`: Basic auth username
+- `N8N_BASIC_AUTH_PASSWORD`: Basic auth password
+- `N8N_BASIC_AUTH_ACTIVE`: Enable basic auth (default: `true`)
+
+### ERPNext Configuration
+
+**Access:** `https://erp.demo.helioncity.com`
+
+**Components:**
+- **MariaDB**: Database server (port 3306)
+- **Redis**: Cache and queue server (port 6379)
+- **ERPNext**: Application server (port 8000)
+
+**Features:**
+- Full ERP system with accounting, inventory, CRM, etc.
+- Database persisted to volume
+- Sites persisted to volume
+- Automatic site creation on first run
+
+**Environment Variables:**
+- `ERPNEXT_SITE_NAME`: Site domain (default: `erp.demo.helioncity.com`)
+- `ERPNEXT_DB_ROOT_PASSWORD`: MariaDB root password
+- `ERPNEXT_DB_NAME`: Database name (default: `frappe`)
+- `ERPNEXT_DB_USER`: Database user (default: `frappe`)
+- `ERPNEXT_DB_PASSWORD`: Database password
+- `ERPNEXT_ADMIN_PASSWORD`: ERPNext admin password
+- `ERPNEXT_VERSION`: ERPNext version (default: `v15.0.0`)
+
+### Deployment
+
+**Prerequisites:**
+- Existing platform stack running (Traefik, network "platform")
+- DNS records pointing to VPS:
+  - `erp.demo.helioncity.com` → VPS IP
+  - `n8n.demo.helioncity.com` → VPS IP
+
+**Steps:**
+1. Copy environment template:
+   ```bash
+   cp infra/.env.demo-apps.example infra/.env.demo-apps
+   ```
+
+2. Edit `.env.demo-apps` with secure passwords
+
+3. Start demo apps:
+   ```bash
+   cd infra
+   docker compose -f docker-compose.demo-apps.yml --env-file .env.demo-apps up -d
+   ```
+
+4. Wait for services to start (ERPNext first-time setup takes 5-10 minutes)
+
+5. Access:
+   - ERPNext: `https://erp.demo.helioncity.com`
+   - n8n: `https://n8n.demo.helioncity.com`
+
+### First-Time ERPNext Site Creation
+
+If automatic site creation fails, manually create the site:
+
+```bash
+# Enter ERPNext container
+docker compose -f docker-compose.demo-apps.yml exec erpnext bash
+
+# Create new site
+bench new-site erp.demo.helioncity.com \
+  --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} \
+  --admin-password ${ERPNEXT_ADMIN_PASSWORD} \
+  --install-app erpnext
+
+# Exit container
+exit
+```
+
+### File Structure
+
+```
+infra/
+├── docker-compose.yml              # Main stack (ai-api, ui, postgres, qdrant)
+├── docker-compose.demo-apps.yml    # Demo apps (ERPNext, n8n) (NEW)
+├── .env.example                    # Main stack env template
+├── .env.demo-apps.example          # Demo apps env template (NEW)
+└── ...
+```
+
+### Notes
+
+- Demo apps use the existing "platform" Docker network
+- Traefik automatically discovers services via Docker labels
+- Let's Encrypt certificates are automatically provisioned
+- Demo apps are isolated from main stack (separate compose file)
+- ERPNext first-time setup can take 5-10 minutes
+- n8n requires basic auth credentials (set in `.env.demo-apps`)
+
+### Troubleshooting
+
+**ERPNext not accessible:**
+- Check site creation: `docker compose -f docker-compose.demo-apps.yml logs erpnext`
+- Verify database connection: `docker compose -f docker-compose.demo-apps.yml exec erpnext-db mysql -u root -p`
+- Check Traefik routing: `curl http://localhost:8080/api/http/routers | jq '.[] | select(.name | contains("erpnext"))'`
+
+**n8n not accessible:**
+- Check container logs: `docker compose -f docker-compose.demo-apps.yml logs n8n`
+- Verify basic auth credentials in `.env.demo-apps`
+- Check Traefik routing: `curl http://localhost:8080/api/http/routers | jq '.[] | select(.name | contains("n8n"))'`
+
+**Traefik not discovering services:**
+- Verify Docker socket mount: `docker compose -f docker-compose.demo-apps.yml exec traefik ls /var/run/docker.sock`
+- Check network: `docker network inspect platform`
+- Restart Traefik: `docker compose restart traefik`
 
 ---
 
