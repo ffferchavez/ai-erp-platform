@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Link from 'next/link';
 import { listDocuments, deleteDocument, type Document, type ApiConfig, ApiError } from '@/lib/api';
 
 export default function DocumentsPage() {
@@ -189,13 +190,19 @@ export default function DocumentsPage() {
         </div>
 
         {/* Navigation */}
-        <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
-          <a
+        <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 flex gap-4">
+          <Link
             href="/"
             className="text-blue-600 dark:text-blue-400 hover:underline"
           >
             ← Back to Chat
-          </a>
+          </Link>
+          <Link
+            href="/admin"
+            className="text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            Admin Panel →
+          </Link>
         </div>
       </div>
     </div>

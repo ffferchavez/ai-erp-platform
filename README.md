@@ -1464,4 +1464,180 @@ apps/ai-api/app/
 
 ---
 
+## Platform v0.9 – Demo Polish + Guardrails
+
+### Overview
+
+Platform v0.9 adds quality improvements to chat/search endpoints with score filtering and citation limits, implements rate limiting for public endpoints, and adds an admin panel UI for managing demo resets.
+
+### Features
+
+- **Chat Improvements**: Optional `min_score` and `max_citations` filters for better quality control
+- **Search Improvements**: Optional `min_score` filter to exclude low-relevance results
+- **Rate Limiting**: In-memory rate limiter for `/chat` and `/search` (60 requests per 10 minutes per IP)
+- **Admin Panel UI**: Web interface for reset/seed operations at `/admin`
+- **Navigation**: Links between Chat, Documents, and Admin pages
+
+### API Improvements
+
+#### POST /chat
+
+**New Optional Fields:**
+- `min_score` (float, default: 0.45) - Minimum relevance score for retrieved chunks
+- `max_citations` (int, default: 3) - Maximum number of citations to return
+
+**Behavior:**
+- Retrieves `top_k` chunks from Qdrant
+- Filters results by `score >= min_score`
+- Uses only filtered results as context for LLM
+- Returns at most `max_citations` citations (highest score first)
+- If no results after filtering: returns "I don't have enough information to answer that."
+
+**Request Example:**
+```json
+{
+  "message": "What are your opening hours?",
+  "top_k": 5,
+  "min_score": 0.5,
+  "max_citations": 2,
+  "tenant_id": "demo"
+}
+```
+
+#### POST /search
+
+**New Optional Field:**
+- `min_score` (float, default: 0.45) - Minimum relevance score for results
+
+**Behavior:**
+- Filters results by `score >= min_score` before returning
+- Only returns results meeting the minimum score threshold
+
+**Request Example:**
+```json
+{
+  "query": "opening hours",
+  "top_k": 5,
+  "min_score": 0.5,
+  "tenant_id": "demo"
+}
+```
+
+### Rate Limiting
+
+**Configuration:**
+- `RATE_LIMIT_MAX` (default: 60) - Maximum requests per window
+- `RATE_LIMIT_WINDOW_SECONDS` (default: 600) - Time window in seconds
+
+**Behavior:**
+- Applies to `/chat` and `/search` endpoints only
+- Keyed by client IP (checks `X-Forwarded-For` header first, then `request.client.host`)
+- Returns HTTP 429 with JSON: `{"detail":"Rate limit exceeded. Try again later."}` when exceeded
+- In-memory storage (no Redis required)
+- Works behind Traefik (uses X-Forwarded-For header)
+
+**Rate Limit Response (429):**
+```json
+{
+  "detail": "Rate limit exceeded. Try again later."
+}
+```
+
+### UI Admin Panel
+
+**Location:** `/admin`
+
+**Features:**
+- Tenant ID input (default: "demo")
+- API key input (required)
+- Three action buttons:
+  - **Reset Tenant** - Deletes all tenant data
+  - **Seed Tenant** - Ingests seed dataset
+  - **Reset + Seed** - Combined operation
+- Success/error display with formatted JSON output
+- Warning message about destructive operations
+
+**Navigation:**
+- Links added to home page: "Documents →" and "Admin Panel →"
+- Links added to documents page: "← Back to Chat" and "Admin Panel →"
+- Links added to admin page: "← Back to Chat" and "Documents →"
+
+### Testing Instructions
+
+#### Test Rate Limiting
+
+```bash
+export BASE=https://api.demo.helioncity.com
+
+# Make 61 requests rapidly (should get 429 on 61st)
+for i in {1..61}; do
+  curl -X POST "${BASE}/chat" \
+    -H "Content-Type: application/json" \
+    -d '{"message":"test"}'
+  echo ""
+done
+```
+
+#### Test Chat with Filters
+
+```bash
+curl -X POST "${BASE}/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "message": "What are your opening hours?",
+    "min_score": 0.5,
+    "max_citations": 2,
+    "tenant_id": "demo"
+  }'
+```
+
+#### Test Search with Filter
+
+```bash
+curl -X POST "${BASE}/search" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "opening hours",
+    "min_score": 0.5,
+    "tenant_id": "demo"
+  }'
+```
+
+### Implementation Details
+
+- **Rate Limiting**: Lightweight in-memory middleware using `collections.defaultdict`
+- **Score Filtering**: Applied after Qdrant retrieval, before LLM context building
+- **Citation Limiting**: Sorted by score (descending), then sliced to `max_citations`
+- **No Breaking Changes**: All new fields are optional with sensible defaults
+- **CORS**: Maintained for localhost and demo.helioncity.com
+
+### File Structure
+
+```
+apps/ai-api/app/
+├── main.py              # FastAPI app (v0.9 - chat/search improvements, rate limiting)
+├── rate_limit.py        # Rate limiting middleware (NEW)
+├── seed.py              # Seed dataset
+└── ...
+
+apps/ui/app/
+├── page.tsx             # Home page (updated navigation)
+├── documents/
+│   └── page.tsx         # Documents page (updated navigation)
+├── admin/
+│   └── page.tsx         # Admin panel (NEW)
+└── lib/
+    └── api.ts           # API client (extended with admin functions)
+```
+
+### Notes
+
+- Rate limiting is per-IP and resets after the time window
+- Score filtering improves answer quality by excluding low-relevance chunks
+- Citation limiting reduces noise in responses
+- Admin panel provides convenient UI for demo management
+- All existing functionality remains unchanged (backward compatible)
+
+---
+
 **Platform v0.1** - Stable file-provider Traefik architecture

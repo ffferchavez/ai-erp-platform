@@ -13,6 +13,8 @@ export interface ApiConfig {
 export interface ChatRequest {
   message: string;
   top_k?: number;
+  min_score?: number;
+  max_citations?: number;
   tenant_id?: string;
 }
 
@@ -146,6 +148,104 @@ export async function deleteDocument(
     `/documents/${documentId}`,
     {
       method: 'DELETE',
+    },
+    config
+  );
+}
+
+/**
+ * Admin endpoints (v0.8+)
+ */
+
+export interface AdminResetRequest {
+  tenant_id?: string;
+}
+
+export interface AdminResetResponse {
+  status: string;
+  tenant_id: string;
+  deleted_postgres_documents: number;
+  deleted_postgres_chunks: number;
+  deleted_qdrant_points: number;
+}
+
+export interface DocumentSeedInfo {
+  title: string;
+  document_id: string;
+  chunks: number;
+}
+
+export interface AdminSeedResponse {
+  status: string;
+  tenant_id: string;
+  documents: DocumentSeedInfo[];
+}
+
+export interface AdminResetSeedResponse {
+  status: string;
+  tenant_id: string;
+  reset: AdminResetResponse;
+  seed: AdminSeedResponse;
+}
+
+/**
+ * Reset a tenant (requires API key)
+ */
+export async function adminReset(
+  tenantId: string = 'demo',
+  config: ApiConfig = {}
+): Promise<AdminResetResponse> {
+  if (!config.apiKey) {
+    throw new ApiError('API key is required for admin operations', 401);
+  }
+  
+  return apiRequest<AdminResetResponse>(
+    '/admin/reset',
+    {
+      method: 'POST',
+      body: JSON.stringify({ tenant_id: tenantId }),
+    },
+    config
+  );
+}
+
+/**
+ * Seed a tenant (requires API key)
+ */
+export async function adminSeed(
+  tenantId: string = 'demo',
+  config: ApiConfig = {}
+): Promise<AdminSeedResponse> {
+  if (!config.apiKey) {
+    throw new ApiError('API key is required for admin operations', 401);
+  }
+  
+  return apiRequest<AdminSeedResponse>(
+    '/admin/seed',
+    {
+      method: 'POST',
+      body: JSON.stringify({ tenant_id: tenantId }),
+    },
+    config
+  );
+}
+
+/**
+ * Reset and seed a tenant in one operation (requires API key)
+ */
+export async function adminResetSeed(
+  tenantId: string = 'demo',
+  config: ApiConfig = {}
+): Promise<AdminResetSeedResponse> {
+  if (!config.apiKey) {
+    throw new ApiError('API key is required for admin operations', 401);
+  }
+  
+  return apiRequest<AdminResetSeedResponse>(
+    '/admin/reset-seed',
+    {
+      method: 'POST',
+      body: JSON.stringify({ tenant_id: tenantId }),
     },
     config
   );

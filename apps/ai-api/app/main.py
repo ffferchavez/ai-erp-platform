@@ -13,10 +13,14 @@ from app.openai_client import get_embedding
 from app.openai_chat import generate_answer
 from app.auth import verify_api_key, get_default_tenant_id
 from app.seed import get_seed_documents
+from app.rate_limit import RateLimitMiddleware
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 from sqlalchemy import text
 
-app = FastAPI(title="AI API", version="0.8.0")
+app = FastAPI(title="AI API", version="0.9.0")
+
+# Add rate limiting middleware (applies to /chat and /search)
+app.add_middleware(RateLimitMiddleware)
 
 # Configure CORS
 app.add_middleware(
@@ -50,6 +54,7 @@ class IngestResponse(BaseModel):
 class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
+    min_score: float = 0.45
     tenant_id: Optional[str] = None
 
 
@@ -71,6 +76,8 @@ class SearchResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     top_k: int = 5
+    min_score: float = 0.45
+    max_citations: int = 3
     tenant_id: Optional[str] = None
 
 
@@ -149,7 +156,7 @@ async def ready():
 
 @app.get("/")
 async def root():
-    return {"name": "ai-api", "version": "0.8.0"}
+    return {"name": "ai-api", "version": "0.9.0"}
 
 
 @app.post("/ingest", response_model=IngestResponse, status_code=status.HTTP_201_CREATED)
@@ -219,6 +226,10 @@ async def search(request: SearchRequest):
         
         async with engine.connect() as conn:
             for hit in search_results:
+                # Filter by min_score
+                if hit.score < request.min_score:
+                    continue
+                
                 chunk_id = str(hit.id)
                 
                 # Fetch chunk content from Postgres with tenant filter
@@ -456,12 +467,17 @@ async def chat(request: ChatRequest):
         )
         
         # 3. Fetch chunk contents from Postgres and build citations (also filter by tenant_id)
+        # Filter by min_score and collect contexts for LLM
         engine = get_engine()
         citations = []
         contexts = []
         
         async with engine.connect() as conn:
             for hit in search_results:
+                # Filter by min_score
+                if hit.score < request.min_score:
+                    continue
+                
                 chunk_id = str(hit.id)
                 
                 # Fetch chunk content from Postgres with tenant filter
@@ -491,13 +507,19 @@ async def chat(request: ChatRequest):
                     contexts.append(row[3])  # Add content to contexts for answer generation
         
         # 4. Generate answer from contexts using lightweight chat model
+        # Only use filtered results (score >= min_score)
         if not contexts:
             answer = "I don't have enough information to answer that."
+            citations = []
         else:
             answer = await generate_answer(
                 message=request.message,
                 contexts=contexts
             )
+            
+            # Limit citations to max_citations (highest score first)
+            # Citations are already sorted by score (descending) from Qdrant
+            citations = citations[:request.max_citations]
         
         return ChatResponse(
             message=request.message,

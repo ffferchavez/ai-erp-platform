@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { chat, type ChatResponse, type Citation, type ApiConfig } from '@/lib/api';
 
 export default function Home() {
@@ -221,13 +222,19 @@ export default function Home() {
         )}
 
         {/* Navigation */}
-        <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700">
-          <a
+        <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 flex gap-4">
+          <Link
             href="/documents"
             className="text-blue-600 dark:text-blue-400 hover:underline"
           >
-            Manage Documents →
-          </a>
+            Documents →
+          </Link>
+          <Link
+            href="/admin"
+            className="text-blue-600 dark:text-blue-400 hover:underline"
+          >
+            Admin Panel →
+          </Link>
         </div>
       </div>
     </div>
