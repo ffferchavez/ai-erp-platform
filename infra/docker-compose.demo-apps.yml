@@ -102,10 +102,12 @@ services:
       fi;
       echo 'DEBUG: python version after selecting 3.11';
       python3 --version || true;
+      echo \"DEBUG: FORCE_SITE_RECREATE=$$FORCE_SITE_RECREATE\";
       if [ \"$$FORCE_SITE_RECREATE\" = \"1\" ]; then
         echo 'DEBUG: FORCE_SITE_RECREATE enabled, dropping site';
         cd /home/frappe/bench && bench drop-site \"${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}\" --force --no-backup --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} || true;
         rm -rf /home/frappe/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} 2>/dev/null || true;
+        rm -f /home/frappe/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json 2>/dev/null || true;
       fi;
       if [ ! -f /home/frappe/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
         echo 'DEBUG: checking bench initialization';
