@@ -89,13 +89,25 @@ services:
     command: >
       bash -lc "set -e;
       BENCH_DIR=/home/frappe/bench;
-      SITE_NAME=${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com};
-      if [ ! -f \"$BENCH_DIR/sites/$SITE_NAME/site_config.json\" ]; then
+      SITE_NAME='${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}';
+      echo 'DEBUG: python version before init';
+      python3 --version || true;
+      if [ -x /home/frappe/.pyenv/versions/3.11.9/bin/python3 ]; then
+        export PYENV_VERSION=3.11.9;
+        echo 'DEBUG: using PYENV_VERSION=3.11.9';
+      elif [ -x /home/frappe/.pyenv/versions/3.11.8/bin/python3 ]; then
+        export PYENV_VERSION=3.11.8;
+        echo 'DEBUG: using PYENV_VERSION=3.11.8';
+      else
+        echo 'DEBUG: python3.11 not found, using default python3';
+      fi;
+      python3 --version || true;
+      if [ ! -f /home/frappe/bench/sites/$SITE_NAME/site_config.json ]; then
         echo 'DEBUG: checking bench initialization';
-        if [ ! -f \"$BENCH_DIR/sites/apps.txt\" ] || [ ! -d \"$BENCH_DIR/apps\" ]; then
+        if [ ! -f /home/frappe/bench/sites/apps.txt ] || [ ! -d /home/frappe/bench/apps ]; then
           echo 'DEBUG: bench not initialized; resetting bench dir';
-          if [ -d \"$BENCH_DIR\" ]; then
-            find \"$BENCH_DIR\" -mindepth 1 -delete 2>/dev/null || true;
+          if [ -d /home/frappe/bench ]; then
+            find /home/frappe/bench -mindepth 1 -delete 2>/dev/null || true;
           fi;
           echo 'DEBUG: bench init';
           cd /home/frappe && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} bench;
@@ -103,8 +115,8 @@ services:
           echo 'DEBUG: bench already initialized';
         fi;
         echo 'DEBUG: bench new-site';
-        cd \"$BENCH_DIR\";
-        bench new-site \"$SITE_NAME\" --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
+        cd /home/frappe/bench;
+        bench new-site $SITE_NAME --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
         echo 'DEBUG: site creation completed';
       else
         echo 'DEBUG: site already exists';
