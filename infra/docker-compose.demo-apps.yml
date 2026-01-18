@@ -102,7 +102,13 @@ services:
       fi;
       echo 'DEBUG: python version after selecting 3.11';
       python3 --version || true;
-      if [ ! -f /home/frappe/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
+      SITE_NAME=${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com};
+      if [ \"${FORCE_SITE_RECREATE:-}\" = \"1\" ]; then
+        echo 'DEBUG: FORCE_SITE_RECREATE enabled, dropping site';
+        cd /home/frappe/bench && bench drop-site \"$SITE_NAME\" --force --no-backup --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} || true;
+        rm -rf /home/frappe/bench/sites/$SITE_NAME 2>/dev/null || true;
+      fi;
+      if [ ! -f /home/frappe/bench/sites/$SITE_NAME/site_config.json ]; then
         echo 'DEBUG: checking bench initialization';
         if [ ! -f /home/frappe/bench/sites/apps.txt ] || [ ! -d /home/frappe/bench/apps ]; then
           echo 'DEBUG: bench not initialized; resetting bench dir';
@@ -122,7 +128,7 @@ services:
         fi;
         echo 'DEBUG: bench new-site';
         cd /home/frappe/bench;
-        bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
+        bench new-site $SITE_NAME --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
         echo 'DEBUG: site creation completed';
       else
         echo 'DEBUG: site already exists';
