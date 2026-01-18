@@ -108,7 +108,7 @@ services:
 
   # ERPNext backend (Frappe framework)
   erpnext-backend:
-    image: frappe/frappe:${ERPNEXT_VERSION:-v15.0.0}
+    image: frappe/bench:latest
     container_name: erpnext-backend
     restart: unless-stopped
     depends_on:
