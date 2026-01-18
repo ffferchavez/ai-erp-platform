@@ -131,19 +131,13 @@ services:
         echo 'DEBUG: bench new-site';
         cd /home/frappe/bench;
         bench new-site \"${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}\" --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
-        python3 - <<'PY'
-import json
-import os
-
-site = os.environ.get("ERPNEXT_SITE_NAME", "erp.demo.helioncity.com")
-path = f"/home/frappe/bench/sites/{site}/site_config.json"
-try:
-    with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    print(f"DEBUG: site_config db_name={data.get('db_name')} db_user={data.get('db_user')}")
-except Exception as exc:
-    print(f"DEBUG: failed to read site_config: {exc}")
-PY
+        python3 -c 'import json, os; site=os.environ.get("ERPNEXT_SITE_NAME","erp.demo.helioncity.com"); path=f"/home/frappe/bench/sites/{site}/site_config.json"; \
+        data=None; \
+        try: \
+          data=json.load(open(path,"r",encoding="utf-8")); \
+          print(f"DEBUG: site_config db_name={data.get(\"db_name\")} db_user={data.get(\"db_user\")}"); \
+        except Exception as exc: \
+          print(f"DEBUG: failed to read site_config: {exc}")'
         echo 'DEBUG: site creation completed';
       else
         echo 'DEBUG: site already exists';
