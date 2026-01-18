@@ -1,8 +1,26 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import Link from 'next/link';
-import { listDocuments, deleteDocument, type Document, type ApiConfig, ApiError } from '@/lib/api';
+import { useMemo, useState, useEffect } from 'react';
+import AppShell from '@/components/AppShell';
+import PageHeader from '@/components/PageHeader';
+import CardSection from '@/components/CardSection';
+import { Button, buttonStyles } from '@/components/Button';
+import { Input } from '@/components/Input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/Table';
+import {
+  listDocuments,
+  deleteDocument,
+  type Document,
+  type ApiConfig,
+  ApiError,
+} from '@/lib/api';
 
 export default function DocumentsPage() {
   const [tenantId, setTenantId] = useState('demo');
@@ -11,6 +29,7 @@ export default function DocumentsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
 
   const config: ApiConfig = {
     tenantId,
@@ -43,7 +62,6 @@ export default function DocumentsPage() {
   };
 
   useEffect(() => {
-    // Only auto-fetch if API key is provided
     if (apiKey.trim()) {
       fetchDocuments();
     }
@@ -60,7 +78,6 @@ export default function DocumentsPage() {
 
     try {
       await deleteDocument(documentId, config);
-      // Refresh the list after deletion
       await fetchDocuments();
     } catch (err: unknown) {
       if (err instanceof ApiError) {
@@ -75,136 +92,139 @@ export default function DocumentsPage() {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="container mx-auto px-4 py-8 max-w-6xl">
-        <header className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">
-            Document Management
-          </h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            View and manage documents for your tenant
-          </p>
-        </header>
+  const filteredDocuments = useMemo(() => {
+    if (!searchQuery.trim()) return documents;
+    const query = searchQuery.toLowerCase();
+    return documents.filter(
+      (doc) =>
+        doc.title.toLowerCase().includes(query) ||
+        doc.source.toLowerCase().includes(query) ||
+        doc.id.toLowerCase().includes(query)
+    );
+  }, [documents, searchQuery]);
 
-        {/* Configuration */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6 mb-6">
-          <div className="space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Tenant ID
-              </label>
-              <input
-                type="text"
-                value={tenantId}
-                onChange={(e) => setTenantId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="demo"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                X-API-Key (Required)
-              </label>
-              <input
-                type="password"
-                value={apiKey}
-                onChange={(e) => setApiKey(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-                placeholder="Enter your API key"
-              />
-              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                Required for viewing and deleting documents
-              </p>
-            </div>
-            <button
-              onClick={fetchDocuments}
-              disabled={loading || !apiKey.trim()}
-              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-md font-medium transition-colors"
-            >
-              {loading ? 'Loading...' : 'Refresh'}
-            </button>
+  return (
+    <AppShell>
+      <PageHeader
+        title="Documents"
+        subtitle="ERP-style document registry with secure actions."
+        breadcrumbs={['Home', 'AI', 'Documents']}
+        actions={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={fetchDocuments}
+            disabled={loading || !apiKey.trim()}
+          >
+            {loading ? 'Refreshing...' : 'Refresh'}
+          </Button>
+        }
+      />
+
+      <CardSection title="Connection" subtitle="Tenant scope and API access.">
+        <div className="grid gap-4 md:grid-cols-2">
+          <div>
+            <label className="text-xs font-semibold text-(--erp-text-muted)">
+              Tenant ID
+            </label>
+            <Input
+              value={tenantId}
+              onChange={(e) => setTenantId(e.target.value)}
+              placeholder="demo"
+              className="mt-2"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-(--erp-text-muted)">
+              X-API-Key
+            </label>
+            <Input
+              type="password"
+              value={apiKey}
+              onChange={(e) => setApiKey(e.target.value)}
+              placeholder="Enter your API key"
+              className="mt-2"
+            />
+            <p className="mt-2 text-xs text-(--erp-text-muted)">
+              Required for viewing and deleting documents.
+            </p>
           </div>
         </div>
+      </CardSection>
 
-        {/* Error Display */}
-        {error && (
-          <div className="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg p-4 mb-6">
-            <p className="text-red-800 dark:text-red-200">{error}</p>
-          </div>
-        )}
+      {error && (
+        <CardSection title="Error" className="border-(--erp-danger)">
+          <p className="text-sm text-(--erp-danger)">{error}</p>
+        </CardSection>
+      )}
 
-        {/* Documents List */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow">
-          <div className="p-6 border-b border-gray-200 dark:border-gray-700">
-            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-              Documents ({documents.length})
-            </h2>
+      <CardSection
+        title={`Documents (${filteredDocuments.length})`}
+        subtitle="Search, review, and manage document sources."
+        actions={
+          <Input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Search documents..."
+            className="w-56"
+          />
+        }
+      >
+        {loading && documents.length === 0 ? (
+          <div className="rounded-md border border-dashed border-(--erp-border) bg-(--erp-surface-muted) px-4 py-6 text-sm text-(--erp-text-muted)">
+            Loading documents...
           </div>
-          {loading && documents.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-              Loading documents...
-            </div>
-          ) : documents.length === 0 ? (
-            <div className="p-8 text-center text-gray-500 dark:text-gray-400">
-              {apiKey.trim()
-                ? 'No documents found. Add documents via the API to see them here.'
-                : 'Enter your API key and click Refresh to load documents.'}
-            </div>
-          ) : (
-            <div className="divide-y divide-gray-200 dark:divide-gray-700">
-              {documents.map((doc) => (
-                <div
-                  key={doc.id}
-                  className="p-6 hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
-                >
-                  <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                      <h3 className="font-medium text-gray-900 dark:text-white mb-1">
-                        {doc.title}
-                      </h3>
-                      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                        Source: {doc.source}
-                      </p>
-                      <div className="flex items-center gap-4 text-xs text-gray-400 dark:text-gray-500">
-                        <span>ID: {doc.id}</span>
-                        {doc.created_at && (
-                          <span>
-                            Created: {new Date(doc.created_at).toLocaleString()}
-                          </span>
-                        )}
-                      </div>
+        ) : documents.length === 0 ? (
+          <div className="rounded-md border border-dashed border-(--erp-border) bg-(--erp-surface-muted) px-4 py-6 text-sm text-(--erp-text-muted)">
+            {apiKey.trim()
+              ? 'No documents found. Add documents via the API to see them here.'
+              : 'Enter your API key and click Refresh to load documents.'}
+          </div>
+        ) : (
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Title</TableHeaderCell>
+                <TableHeaderCell>Source</TableHeaderCell>
+                <TableHeaderCell>Created</TableHeaderCell>
+                <TableHeaderCell />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {filteredDocuments.map((doc) => (
+                <TableRow key={doc.id}>
+                  <TableCell>
+                    <div className="font-medium">{doc.title}</div>
+                    <div className="text-xs text-(--erp-text-muted)">
+                      ID: {doc.id}
                     </div>
+                  </TableCell>
+                  <TableCell className="text-xs text-(--erp-text-muted)">
+                    {doc.source}
+                  </TableCell>
+                  <TableCell className="text-xs text-(--erp-text-muted)">
+                    {doc.created_at
+                      ? new Date(doc.created_at).toLocaleString()
+                      : '—'}
+                  </TableCell>
+                  <TableCell className="text-right">
                     <button
                       onClick={() => handleDelete(doc.id)}
                       disabled={deletingId === doc.id || !apiKey.trim()}
-                      className="ml-4 px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-md text-sm font-medium transition-colors"
+                      className={buttonStyles({
+                        variant: 'danger',
+                        size: 'sm',
+                      })}
                     >
                       {deletingId === doc.id ? 'Deleting...' : 'Delete'}
                     </button>
-                  </div>
-                </div>
+                  </TableCell>
+                </TableRow>
               ))}
-            </div>
-          )}
-        </div>
-
-        {/* Navigation */}
-        <div className="mt-8 pt-6 border-t border-gray-200 dark:border-gray-700 flex gap-4">
-          <Link
-            href="/"
-            className="text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            ← Back to Chat
-          </Link>
-          <Link
-            href="/admin"
-            className="text-blue-600 dark:text-blue-400 hover:underline"
-          >
-            Admin Panel →
-          </Link>
-        </div>
-      </div>
-    </div>
+            </TableBody>
+          </Table>
+        )}
+      </CardSection>
+    </AppShell>
   );
 }

@@ -100,20 +100,30 @@ async function apiRequest<T>(
 /**
  * Send a chat message to the AI assistant
  */
+export interface ChatOptions {
+  topK?: number;
+  minScore?: number;
+  maxCitations?: number;
+}
+
 export async function chat(
   message: string,
-  topK: number = 5,
+  options: number | ChatOptions = 5,
   config: ApiConfig = {}
 ): Promise<ChatResponse> {
   const { tenantId = 'demo' } = config;
-  
+  const resolvedOptions =
+    typeof options === 'number' ? { topK: options } : options;
+
   return apiRequest<ChatResponse>(
     '/chat',
     {
       method: 'POST',
       body: JSON.stringify({
         message,
-        top_k: topK,
+        top_k: resolvedOptions.topK ?? 5,
+        min_score: resolvedOptions.minScore,
+        max_citations: resolvedOptions.maxCitations,
         tenant_id: tenantId,
       }),
     },
