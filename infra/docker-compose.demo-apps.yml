@@ -83,17 +83,17 @@ services:
       - REDIS_QUEUE=erpnext-redis:6379
       - REDIS_SOCKETIO=erpnext-redis:6379
     volumes:
-      - erpnext-bench:/workspace/bench
+      - erpnext-bench:/home/frappe/frappe-bench
     networks:
       - platform
     command: >
       bash -c "
       set -e;
-      if [ ! -f /workspace/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
+      if [ ! -f /home/frappe/frappe-bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
         echo 'Initializing bench...';
-        cd /workspace && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} bench || true;
+        cd /home/frappe && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} frappe-bench || true;
         echo 'Creating site...';
-        cd /workspace/bench && bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} \
+        cd /home/frappe/frappe-bench && bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} \
           --db-host erpnext-db \
           --db-port 3306 \
           --db-root-username root \
@@ -127,25 +127,11 @@ services:
       - SOCKETIO_PORT=9000
       - FRAPPE_SITE=${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}
     volumes:
-      - erpnext-bench:/workspace/bench
+      - erpnext-bench:/home/frappe/frappe-bench
     networks:
       - platform
+    working_dir: /home/frappe/frappe-bench
     command: bench serve --host 0.0.0.0 --port 8000
-
-  # ERPNext nginx (web server)
-  erpnext-nginx:
-    image: frappe/frappe-nginx:${ERPNEXT_VERSION:-v15.0.0}
-    container_name: erpnext-nginx
-    restart: unless-stopped
-    depends_on:
-      - erpnext-backend
-    environment:
-      - FRAPPE_SITE=${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}
-      - BACKEND=erpnext-backend:8000
-    volumes:
-      - erpnext-bench:/workspace/bench
-    networks:
-      - platform
     labels:
       - traefik.enable=true
       - traefik.http.routers.erpnext-http.rule=Host(`${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}`)
@@ -156,7 +142,7 @@ services:
       - traefik.http.routers.erpnext-https.entrypoints=websecure
       - traefik.http.routers.erpnext-https.tls=true
       - traefik.http.routers.erpnext-https.tls.certresolver=letsencrypt
-      - traefik.http.services.erpnext.loadbalancer.server.port=8080
+      - traefik.http.services.erpnext.loadbalancer.server.port=8000
 
 networks:
   platform:
