@@ -87,72 +87,30 @@ services:
     networks:
       - platform
     command: >
-      bash -c "
+      bash -lc "
       set -e;
-      LOG_PATH='/Users/fernandochavez/Documents/developer/ai-erp-platform/.cursor/debug.log';
-      log() {
-        TS=$(date +%s000);
-        LINE=\"{\\\"timestamp\\\":$TS,\\\"location\\\":\\\"erpnext-site-creator\\\",\\\"message\\\":\\\"$1\\\",\\\"data\\\":$2,\\\"sessionId\\\":\\\"debug-session\\\",\\\"runId\\\":\\\"run1\\\",\\\"hypothesisId\\\":\\\"$3\\\"}\";
-        echo \"$LINE\" >> \"$LOG_PATH\" 2>/dev/null || true;
-        echo \"$LINE\";
-      }
-      # region agent log
-      BENCH_DIR_EXISTS=$( [ -d /home/frappe/frappe-bench ] && echo true || echo false );
-      SITES_DIR_EXISTS=$( [ -d /home/frappe/frappe-bench/sites ] && echo true || echo false );
-      APPS_DIR_EXISTS=$( [ -d /home/frappe/frappe-bench/apps ] && echo true || echo false );
-      APPS_TXT_EXISTS=$( [ -f /home/frappe/frappe-bench/sites/apps.txt ] && echo true || echo false );
-      log \"precheck\" \"{\\\"bench_dir_exists\\\":$BENCH_DIR_EXISTS,\\\"sites_dir_exists\\\":$SITES_DIR_EXISTS,\\\"apps_dir_exists\\\":$APPS_DIR_EXISTS,\\\"apps_txt_exists\\\":$APPS_TXT_EXISTS}\" \"H1\";
-      # endregion
-      if [ ! -f /home/frappe/frappe-bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
-        # region agent log
-        log \"needs_init_check\" \"{\\\"site_config_exists\\\":false}\" \"H1\";
-        # endregion
-        if [ ! -f /home/frappe/frappe-bench/sites/apps.txt ] || [ ! -d /home/frappe/frappe-bench/apps ]; then
-          # region agent log
-          log \"cleanup_start\" \"{\\\"bench_dir_exists\\\":$BENCH_DIR_EXISTS}\" \"H1\";
-          # endregion
-          if [ -d /home/frappe/frappe-bench ]; then
-            find /home/frappe/frappe-bench -mindepth 1 -delete 2>/dev/null || rm -rf /home/frappe/frappe-bench/* /home/frappe/frappe-bench/.[!.]* 2>/dev/null || true;
-            rmdir /home/frappe/frappe-bench 2>/dev/null || true;
-          fi
-          # region agent log
-          POST_CLEAN_DIR_EXISTS=$( [ -d /home/frappe/frappe-bench ] && echo true || echo false );
-          log \"cleanup_done\" \"{\\\"bench_dir_exists\\\":$POST_CLEAN_DIR_EXISTS}\" \"H1\";
-          # endregion
-          set +e;
-          cd /home/frappe && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} frappe-bench;
-          INIT_STATUS=$?;
-          set -e;
-          # region agent log
-          APPS_DIR_EXISTS=$( [ -d /home/frappe/frappe-bench/apps ] && echo true || echo false );
-          APPS_TXT_EXISTS=$( [ -f /home/frappe/frappe-bench/sites/apps.txt ] && echo true || echo false );
-          log \"bench_init_result\" \"{\\\"init_status\\\":$INIT_STATUS,\\\"apps_dir_exists\\\":$APPS_DIR_EXISTS,\\\"apps_txt_exists\\\":$APPS_TXT_EXISTS}\" \"H2\";
-          # endregion
-        else
-          # region agent log
-          log \"bench_already_initialized\" \"{\\\"apps_dir_exists\\\":$APPS_DIR_EXISTS,\\\"apps_txt_exists\\\":$APPS_TXT_EXISTS}\" \"H1\";
-          # endregion
-        fi
-        cd /home/frappe/frappe-bench || { log \"cd_failed\" \"{\\\"path\\\":\\\"/home/frappe/frappe-bench\\\"}\" \"H3\"; exit 1; };
-        set +e;
-        bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} \
-          --db-host erpnext-db \
-          --db-port 3306 \
-          --db-root-username root \
-          --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} \
-          --admin-password ${ERPNEXT_ADMIN_PASSWORD} \
-          --install-app erpnext;
-        NEW_SITE_STATUS=$?;
-        set -e;
-        # region agent log
-        log \"new_site_result\" \"{\\\"status\\\":$NEW_SITE_STATUS}\" \"H3\";
-        # endregion
-        if [ $NEW_SITE_STATUS -ne 0 ]; then exit $NEW_SITE_STATUS; fi
-      else
-        # region agent log
-        log \"site_exists\" \"{\\\"site_config_exists\\\":true}\" \"H1\";
-        # endregion
+      SITE_NAME='${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}';
+      BENCH_DIR='/home/frappe/frappe-bench';
+      echo 'DEBUG: precheck start';
+      if [ -f \"$BENCH_DIR/sites/$SITE_NAME/site_config.json\" ]; then
+        echo 'DEBUG: site already exists';
+        exit 0;
       fi
+      if [ ! -f \"$BENCH_DIR/sites/apps.txt\" ] || [ ! -d \"$BENCH_DIR/apps\" ]; then
+        echo 'DEBUG: bench not initialized; resetting bench dir';
+        if [ -d \"$BENCH_DIR\" ]; then
+          find \"$BENCH_DIR\" -mindepth 1 -delete 2>/dev/null || true;
+          rmdir \"$BENCH_DIR\" 2>/dev/null || true;
+        fi
+        echo 'DEBUG: bench init';
+        cd /home/frappe && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} frappe-bench;
+      else
+        echo 'DEBUG: bench already initialized';
+      fi
+      cd \"$BENCH_DIR\" || { echo 'DEBUG: cd failed'; exit 1; };
+      echo 'DEBUG: bench new-site';
+      bench new-site \"$SITE_NAME\" --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
+      echo 'DEBUG: site creation completed';
       "
 
   # ERPNext backend (Frappe framework)
