@@ -88,21 +88,20 @@ services:
       - platform
     command: >
       bash -lc "set -e;
-      BENCH_DIR=/home/frappe/bench;
-      SITE_NAME='${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}';
       echo 'DEBUG: python version before init';
       python3 --version || true;
+      if [ ! -x /home/frappe/.pyenv/versions/3.11.9/bin/python3 ] && [ ! -x /home/frappe/.pyenv/versions/3.11.8/bin/python3 ]; then
+        echo 'DEBUG: installing python3.11 via pyenv';
+        pyenv install 3.11.9 || pyenv install 3.11.8;
+      fi;
       if [ -x /home/frappe/.pyenv/versions/3.11.9/bin/python3 ]; then
         export PYENV_VERSION=3.11.9;
-        echo 'DEBUG: using PYENV_VERSION=3.11.9';
       elif [ -x /home/frappe/.pyenv/versions/3.11.8/bin/python3 ]; then
         export PYENV_VERSION=3.11.8;
-        echo 'DEBUG: using PYENV_VERSION=3.11.8';
-      else
-        echo 'DEBUG: python3.11 not found, using default python3';
       fi;
+      echo 'DEBUG: python version after selecting 3.11';
       python3 --version || true;
-      if [ ! -f /home/frappe/bench/sites/$SITE_NAME/site_config.json ]; then
+      if [ ! -f /home/frappe/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
         echo 'DEBUG: checking bench initialization';
         if [ ! -f /home/frappe/bench/sites/apps.txt ] || [ ! -d /home/frappe/bench/apps ]; then
           echo 'DEBUG: bench not initialized; resetting bench dir';
@@ -116,7 +115,7 @@ services:
         fi;
         echo 'DEBUG: bench new-site';
         cd /home/frappe/bench;
-        bench new-site $SITE_NAME --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
+        bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
         echo 'DEBUG: site creation completed';
       else
         echo 'DEBUG: site already exists';
