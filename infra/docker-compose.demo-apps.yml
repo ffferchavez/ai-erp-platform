@@ -121,7 +121,7 @@ services:
       SITE_NAME='${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}';
       if [ ! -f /home/frappe/frappe-bench/sites/apps.txt ] && [ ! -d /home/frappe/frappe-bench/apps ]; then
         echo 'Bench not initialized, initializing...';
-        cd /home/frappe && bench init frappe-bench --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} --skip-redis-config --skip-assets --no-procfile --no-backup || exit 1;
+        cd /home/frappe && bench init frappe-bench --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} --skip-redis-config-generation --skip-assets --no-procfile --no-backup || exit 1;
         echo 'Bench initialized successfully';
       fi;
       cd /home/frappe/frappe-bench || exit 1;
