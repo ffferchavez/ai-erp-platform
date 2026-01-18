@@ -66,36 +66,57 @@ services:
       timeout: 3s
       retries: 5
 
-  # ERPNext init container (fixes permissions)
-  erpnext-init:
+  # ERPNext site creator (one-time initialization)
+  erpnext-site-creator:
     image: frappe/bench:latest
-    container_name: erpnext-init
-    user: root
+    container_name: erpnext-site-creator
+    restart: "no"
+    depends_on:
+      erpnext-db:
+        condition: service_healthy
+      erpnext-redis:
+        condition: service_healthy
+    environment:
+      - DB_HOST=erpnext-db
+      - DB_PORT=3306
+      - REDIS_CACHE=erpnext-redis:6379
+      - REDIS_QUEUE=erpnext-redis:6379
+      - REDIS_SOCKETIO=erpnext-redis:6379
     volumes:
-      - erpnext-bench:/home/frappe/frappe-bench
+      - erpnext-bench:/workspace/bench
     networks:
       - platform
     command: >
-      sh -c "
-      mkdir -p /home/frappe/frappe-bench/sites /home/frappe/frappe-bench/logs &&
-      chown -R frappe:frappe /home/frappe/frappe-bench &&
-      chmod -R 755 /home/frappe/frappe-bench &&
-      echo 'Permissions fixed successfully' &&
-      exit 0
+      bash -c "
+      set -e;
+      if [ ! -f /workspace/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
+        echo 'Initializing bench...';
+        cd /workspace && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} bench || true;
+        echo 'Creating site...';
+        cd /workspace/bench && bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} \
+          --db-host erpnext-db \
+          --db-port 3306 \
+          --db-root-username root \
+          --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} \
+          --admin-password ${ERPNEXT_ADMIN_PASSWORD} \
+          --install-app erpnext || echo 'Site may already exist';
+        echo 'Site creation completed';
+      else
+        echo 'Site already exists, skipping creation';
+      fi
       "
-    restart: "no"
 
-  # ERPNext application (frappe/bench for site management)
-  erpnext:
-    image: frappe/bench:latest
-    container_name: erpnext
+  # ERPNext backend (Frappe framework)
+  erpnext-backend:
+    image: frappe/frappe:${ERPNEXT_VERSION:-v15.0.0}
+    container_name: erpnext-backend
     restart: unless-stopped
     depends_on:
       erpnext-db:
         condition: service_healthy
       erpnext-redis:
         condition: service_healthy
-      erpnext-init:
+      erpnext-site-creator:
         condition: service_completed_successfully
     environment:
       - DB_HOST=erpnext-db
@@ -105,34 +126,26 @@ services:
       - REDIS_SOCKETIO=erpnext-redis:6379
       - SOCKETIO_PORT=9000
       - FRAPPE_SITE=${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}
-      - FRAPPE_SITE_NAME=${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}
-      - ADMIN_PASSWORD=${ERPNEXT_ADMIN_PASSWORD}
-      - INSTALL_APPS=erpnext
-      - FRAPPE_VERSION=${ERPNEXT_VERSION:-v15.0.0}
-      - ERPNEXT_VERSION=${ERPNEXT_VERSION:-v15.0.0}
     volumes:
-      - erpnext-bench:/home/frappe/frappe-bench
+      - erpnext-bench:/workspace/bench
     networks:
       - platform
-    command: >
-      bash -lc "
-      mkdir -p /home/frappe/frappe-bench/logs /home/frappe/frappe-bench/sites;
-      touch /home/frappe/frappe-bench/logs/bench.log 2>/dev/null || true;
-      SITE_NAME='${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}';
-      if [ ! -f /home/frappe/frappe-bench/sites/apps.txt ] && [ ! -d /home/frappe/frappe-bench/apps ]; then
-        echo 'Bench not initialized, initializing...';
-        cd /home/frappe && bench init frappe-bench --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} --skip-redis-config-generation --skip-assets --no-procfile --no-backups || exit 1;
-        echo 'Bench initialized successfully';
-      fi;
-      cd /home/frappe/frappe-bench || exit 1;
-      if [ ! -f sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
-        echo 'Site not found, creating new site...';
-        (cd /home/frappe/frappe-bench && bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext) || exit 1;
-        echo 'Site created successfully';
-      fi;
-      echo 'Starting bench serve...';
-      cd /home/frappe/frappe-bench && bench serve --host 0.0.0.0 --port 8000
-      "
+    command: bench serve --host 0.0.0.0 --port 8000
+
+  # ERPNext nginx (web server)
+  erpnext-nginx:
+    image: frappe/frappe-nginx:${ERPNEXT_VERSION:-v15.0.0}
+    container_name: erpnext-nginx
+    restart: unless-stopped
+    depends_on:
+      - erpnext-backend
+    environment:
+      - FRAPPE_SITE=${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}
+      - BACKEND=erpnext-backend:8000
+    volumes:
+      - erpnext-bench:/workspace/bench
+    networks:
+      - platform
     labels:
       - traefik.enable=true
       - traefik.http.routers.erpnext-http.rule=Host(`${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}`)
@@ -143,7 +156,7 @@ services:
       - traefik.http.routers.erpnext-https.entrypoints=websecure
       - traefik.http.routers.erpnext-https.tls=true
       - traefik.http.routers.erpnext-https.tls.certresolver=letsencrypt
-      - traefik.http.services.erpnext.loadbalancer.server.port=8000
+      - traefik.http.services.erpnext.loadbalancer.server.port=8080
 
 networks:
   platform:
