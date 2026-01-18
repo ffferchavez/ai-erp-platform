@@ -114,6 +114,12 @@ services:
         else
           echo 'DEBUG: bench already initialized';
         fi;
+        if [ ! -d /home/frappe/bench/apps/erpnext ]; then
+          echo 'DEBUG: fetching erpnext app';
+          cd /home/frappe/bench && bench get-app erpnext https://github.com/frappe/erpnext --branch ${ERPNEXT_VERSION:-v15.0.0};
+        else
+          echo 'DEBUG: erpnext app already present';
+        fi;
         echo 'DEBUG: bench new-site';
         cd /home/frappe/bench;
         bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
