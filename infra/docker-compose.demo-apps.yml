@@ -83,27 +83,28 @@ services:
       - REDIS_QUEUE=erpnext-redis:6379
       - REDIS_SOCKETIO=erpnext-redis:6379
     volumes:
-      - erpnext-bench:/home/frappe/frappe-bench
+      - erpnext-bench:/home/frappe
     networks:
       - platform
     command: >
       bash -lc "set -e;
-      if [ ! -f /home/frappe/frappe-bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
+      BENCH_DIR=/home/frappe/bench;
+      SITE_NAME=${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com};
+      if [ ! -f \"$BENCH_DIR/sites/$SITE_NAME/site_config.json\" ]; then
         echo 'DEBUG: checking bench initialization';
-        if [ ! -f /home/frappe/frappe-bench/sites/apps.txt ] || [ ! -d /home/frappe/frappe-bench/apps ]; then
+        if [ ! -f \"$BENCH_DIR/sites/apps.txt\" ] || [ ! -d \"$BENCH_DIR/apps\" ]; then
           echo 'DEBUG: bench not initialized; resetting bench dir';
-          if [ -d /home/frappe/frappe-bench ]; then
-            find /home/frappe/frappe-bench -mindepth 1 -delete 2>/dev/null || true;
-            rmdir /home/frappe/frappe-bench 2>/dev/null || true;
+          if [ -d \"$BENCH_DIR\" ]; then
+            find \"$BENCH_DIR\" -mindepth 1 -delete 2>/dev/null || true;
           fi;
           echo 'DEBUG: bench init';
-          cd /home/frappe && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} frappe-bench;
+          cd /home/frappe && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} bench;
         else
           echo 'DEBUG: bench already initialized';
         fi;
         echo 'DEBUG: bench new-site';
-        cd /home/frappe/frappe-bench;
-        bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
+        cd \"$BENCH_DIR\";
+        bench new-site \"$SITE_NAME\" --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
         echo 'DEBUG: site creation completed';
       else
         echo 'DEBUG: site already exists';
@@ -130,10 +131,10 @@ services:
       - SOCKETIO_PORT=9000
       - FRAPPE_SITE=${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}
     volumes:
-      - erpnext-bench:/home/frappe/frappe-bench
+      - erpnext-bench:/home/frappe
     networks:
       - platform
-    working_dir: /home/frappe/frappe-bench
+    working_dir: /home/frappe/bench
     command: bench serve --host 0.0.0.0 --port 8000
     labels:
       - traefik.enable=true
