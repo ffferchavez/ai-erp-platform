@@ -88,60 +88,59 @@ services:
       - erpnext-bench:/home/frappe
     networks:
       - platform
-    command: >
-      bash -lc "set -e;
-      echo 'DEBUG: python version before init';
-      python3 --version || true;
-      if [ ! -x /home/frappe/.pyenv/versions/3.11.9/bin/python3 ] && [ ! -x /home/frappe/.pyenv/versions/3.11.8/bin/python3 ]; then
-        echo 'DEBUG: installing python3.11 via pyenv';
-        pyenv install 3.11.9 || pyenv install 3.11.8;
-      fi;
-      if [ -x /home/frappe/.pyenv/versions/3.11.9/bin/python3 ]; then
-        export PYENV_VERSION=3.11.9;
-      elif [ -x /home/frappe/.pyenv/versions/3.11.8/bin/python3 ]; then
-        export PYENV_VERSION=3.11.8;
-      fi;
-      echo 'DEBUG: python version after selecting 3.11';
-      python3 --version || true;
-      echo \"DEBUG: FORCE_SITE_RECREATE=$$FORCE_SITE_RECREATE\";
-      if [ \"$$FORCE_SITE_RECREATE\" = \"1\" ]; then
-        echo 'DEBUG: FORCE_SITE_RECREATE enabled, dropping site';
-        cd /home/frappe/bench && bench drop-site \"${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}\" --force --no-backup --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} || true;
-        rm -rf /home/frappe/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} 2>/dev/null || true;
-        rm -f /home/frappe/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json 2>/dev/null || true;
-      fi;
-      if [ ! -f /home/frappe/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
-        echo 'DEBUG: checking bench initialization';
-        if [ ! -f /home/frappe/bench/sites/apps.txt ] || [ ! -d /home/frappe/bench/apps ]; then
-          echo 'DEBUG: bench not initialized; resetting bench dir';
-          if [ -d /home/frappe/bench ]; then
-            find /home/frappe/bench -mindepth 1 -delete 2>/dev/null || true;
-          fi;
-          echo 'DEBUG: bench init';
-          cd /home/frappe && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} bench;
+    command:
+      - bash
+      - -lc
+      - |
+        set -e
+        echo 'DEBUG: python version before init'
+        python3 --version || true
+        if [ ! -x /home/frappe/.pyenv/versions/3.11.9/bin/python3 ] && [ ! -x /home/frappe/.pyenv/versions/3.11.8/bin/python3 ]; then
+          echo 'DEBUG: installing python3.11 via pyenv'
+          pyenv install 3.11.9 || pyenv install 3.11.8
+        fi
+        if [ -x /home/frappe/.pyenv/versions/3.11.9/bin/python3 ]; then
+          export PYENV_VERSION=3.11.9
+        elif [ -x /home/frappe/.pyenv/versions/3.11.8/bin/python3 ]; then
+          export PYENV_VERSION=3.11.8
+        fi
+        echo 'DEBUG: python version after selecting 3.11'
+        python3 --version || true
+        echo "DEBUG: FORCE_SITE_RECREATE=$FORCE_SITE_RECREATE"
+        if [ "$FORCE_SITE_RECREATE" = "1" ]; then
+          echo 'DEBUG: FORCE_SITE_RECREATE enabled, dropping site'
+          cd /home/frappe/bench && bench drop-site "${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}" --force --no-backup --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} || true
+          rm -rf /home/frappe/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} 2>/dev/null || true
+          rm -f /home/frappe/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json 2>/dev/null || true
+        fi
+        if [ ! -f /home/frappe/bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
+          echo 'DEBUG: checking bench initialization'
+          if [ ! -f /home/frappe/bench/sites/apps.txt ] || [ ! -d /home/frappe/bench/apps ]; then
+            echo 'DEBUG: bench not initialized; resetting bench dir'
+            if [ -d /home/frappe/bench ]; then
+              find /home/frappe/bench -mindepth 1 -delete 2>/dev/null || true
+            fi
+            echo 'DEBUG: bench init'
+            cd /home/frappe && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} bench
+          else
+            echo 'DEBUG: bench already initialized'
+          fi
+          if [ ! -d /home/frappe/bench/apps/erpnext ]; then
+            echo 'DEBUG: fetching erpnext app'
+            cd /home/frappe/bench && bench get-app erpnext https://github.com/frappe/erpnext --branch ${ERPNEXT_VERSION:-v15.0.0}
+          else
+            echo 'DEBUG: erpnext app already present'
+          fi
+          echo 'DEBUG: bench new-site'
+          cd /home/frappe/bench
+          bench new-site "${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}" --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext
+          python3 -c "import json, os; site=os.environ.get('ERPNEXT_SITE_NAME','erp.demo.helioncity.com'); path=f'/home/frappe/bench/sites/{site}/site_config.json'; data=None; \
+          try: data=json.load(open(path,'r',encoding='utf-8')); print(f'DEBUG: site_config db_name={data.get(\"db_name\")} db_user={data.get(\"db_user\")}'); \
+          except Exception as exc: print(f'DEBUG: failed to read site_config: {exc}')"
+          echo 'DEBUG: site creation completed'
         else
-          echo 'DEBUG: bench already initialized';
-        fi;
-        if [ ! -d /home/frappe/bench/apps/erpnext ]; then
-          echo 'DEBUG: fetching erpnext app';
-          cd /home/frappe/bench && bench get-app erpnext https://github.com/frappe/erpnext --branch ${ERPNEXT_VERSION:-v15.0.0};
-        else
-          echo 'DEBUG: erpnext app already present';
-        fi;
-        echo 'DEBUG: bench new-site';
-        cd /home/frappe/bench;
-        bench new-site \"${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}\" --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext;
-        python3 -c 'import json, os; site=os.environ.get("ERPNEXT_SITE_NAME","erp.demo.helioncity.com"); path=f"/home/frappe/bench/sites/{site}/site_config.json"; \
-        data=None; \
-        try: \
-          data=json.load(open(path,"r",encoding="utf-8")); \
-          print(f"DEBUG: site_config db_name={data.get(\"db_name\")} db_user={data.get(\"db_user\")}"); \
-        except Exception as exc: \
-          print(f"DEBUG: failed to read site_config: {exc}")'
-        echo 'DEBUG: site creation completed';
-      else
-        echo 'DEBUG: site already exists';
-      fi"
+          echo 'DEBUG: site already exists'
+        fi
 
   # ERPNext backend (Frappe framework)
   erpnext-backend:
