@@ -86,20 +86,26 @@ services:
       - erpnext-bench:/home/frappe/frappe-bench
     networks:
       - platform
-    working_dir: /home/frappe/frappe-bench
     command: >
       bash -c "
       set -e;
       if [ ! -f /home/frappe/frappe-bench/sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
         echo 'Checking if bench needs initialization...';
         if [ ! -f /home/frappe/frappe-bench/sites/apps.txt ] || [ ! -d /home/frappe/frappe-bench/apps ]; then
+          echo 'Bench directory exists but is not initialized, removing and reinitializing...';
+          if [ -d /home/frappe/frappe-bench ]; then
+            rm -rf /home/frappe/frappe-bench/* /home/frappe/frappe-bench/.[!.]* 2>/dev/null || true;
+          fi
           echo 'Initializing bench...';
-          cd /home/frappe && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} frappe-bench || echo 'Bench init completed or already exists';
+          cd /home/frappe && bench init --skip-redis-config-generation --frappe-branch ${ERPNEXT_VERSION:-v15.0.0} frappe-bench;
+          echo 'Bench initialized successfully';
         else
           echo 'Bench already initialized';
         fi
         echo 'Creating site...';
-        cd /home/frappe/frappe-bench;
+        cd /home/frappe/frappe-bench || { echo 'ERROR: Cannot cd to bench directory'; exit 1; };
+        pwd;
+        ls -la sites/ || echo 'sites directory check';
         bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} \
           --db-host erpnext-db \
           --db-port 3306 \
