@@ -33,7 +33,7 @@ services:
 
   # ERPNext MariaDB database
   erpnext-db:
-    image: mariadb:10.11
+    image: mariadb:10.6
     container_name: erpnext-db
     restart: unless-stopped
     environment:
@@ -43,6 +43,7 @@ services:
       - MYSQL_PASSWORD=${ERPNEXT_DB_PASSWORD}
     volumes:
       - erpnext-db-data:/var/lib/mysql
+      - ./mariadb/erpnext.cnf:/etc/mysql/conf.d/erpnext.cnf:ro
     networks:
       - platform
     healthcheck:
