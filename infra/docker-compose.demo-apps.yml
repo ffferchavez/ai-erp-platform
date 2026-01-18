@@ -127,11 +127,11 @@ services:
       cd /home/frappe/frappe-bench || exit 1;
       if [ ! -f sites/${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}/site_config.json ]; then
         echo 'Site not found, creating new site...';
-        bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext || exit 1;
+        (cd /home/frappe/frappe-bench && bench new-site ${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com} --db-host erpnext-db --db-port 3306 --db-root-username root --db-root-password ${ERPNEXT_DB_ROOT_PASSWORD} --admin-password ${ERPNEXT_ADMIN_PASSWORD} --install-app erpnext) || exit 1;
         echo 'Site created successfully';
       fi;
       echo 'Starting bench serve...';
-      bench serve --host 0.0.0.0 --port 8000
+      cd /home/frappe/frappe-bench && bench serve --host 0.0.0.0 --port 8000
       "
     labels:
       - traefik.enable=true
