@@ -147,7 +147,7 @@ services:
     networks:
       - platform
     working_dir: /home/frappe/bench
-    command: bench serve --host 0.0.0.0 --port 8000
+    command: bench serve --port 8000
     labels:
       - traefik.enable=true
       - traefik.http.routers.erpnext-http.rule=Host(`${ERPNEXT_SITE_NAME:-erp.demo.helioncity.com}`)
